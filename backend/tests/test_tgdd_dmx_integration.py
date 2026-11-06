@@ -8,11 +8,19 @@ if sys.platform == "win32":
 
 sys.path.insert(0, ".")
 
+import pytest
 from fastapi.testclient import TestClient
 from src.main import app
 from core.tools.ecom_search import EcomSearchTool
 
-client = TestClient(app)
+
+@pytest.fixture(scope="module")
+def client():
+    # `with` giữ một event loop cho mọi request trong tệp: task ghi nền của session_manager
+    # (lưu lượt chat) chạy xong thay vì bị hủy giữa giao dịch khi loop của từng request đóng,
+    # vốn để lại khóa ghi làm request sau báo "database is locked".
+    with TestClient(app) as c:
+        yield c
 
 
 def test_direct_tools():
@@ -35,7 +43,7 @@ def test_direct_tools():
     assert len(dmx_items) > 0
     assert dmx_items[0]["platform"] == "dmx"
 
-def test_api_endpoints():
+def test_api_endpoints(client):
     print("\n--- 2. TEST FASTAPI PRODUCTS SEARCH ENDPOINT ---")
     # TGDD endpoint
     res_tgdd = client.get("/api/v1/products/search?q=macbook&platform=tgdd&limit=3")
@@ -59,7 +67,7 @@ def test_api_endpoints():
     print(f"API ALL returned {data_all['total']} items. Platforms present: {platforms_present}")
     assert data_all["total"] > 0
 
-def test_chat_platform_routing():
+def test_chat_platform_routing(client):
     print("\n--- 3. TEST CHAT BOT TARGET PLATFORM RECOGNITION ---")
     
     # TGDD Chat

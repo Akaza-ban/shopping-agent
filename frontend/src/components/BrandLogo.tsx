@@ -1,4 +1,5 @@
 import React from 'react';
+import { t } from '../i18n/index.tsx';
 
 interface BrandLogoProps {
   className?: string;
@@ -65,7 +66,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
             Shopping<span className="text-amber-700">AI</span>
           </span>
           <span className="text-[10px] text-stone-500 font-medium">
-            Trợ lý mua sắm thông minh
+            {t('Trợ lý mua sắm thông minh')}
           </span>
         </div>
       )}

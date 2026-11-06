@@ -1,0 +1,1814 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ShopAI Agent Backend",
+    "description": "Hệ thống Backend Multi-Agent thông minh (Hỗ trợ Groq / OpenRouter & LangSmith Tracing)",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Logout",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Me",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Update Profile",
+        "operationId": "update_profile_api_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Change Password",
+        "operationId": "change_password_api_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me/data/{key}": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Get User Data",
+        "operationId": "get_user_data_api_auth_me_data__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Put User Data",
+        "operationId": "put_user_data_api_auth_me_data__key__put",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Send Chat Message",
+        "operationId": "send_chat_message_api_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/stream": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Chat Stream Post",
+        "description": "Streaming SSE Chat API (POST).\nTrả về dòng sự kiện Server-Sent Events (SSE):\n- event: status -> Cập nhật trạng thái xử lý ('routing', 'crawling', 'synthesizing'...)\n- event: products -> Trả về danh sách sản phẩm ngay khi cào xong để UI render trước\n- event: comparison -> Bảng so sánh có cấu trúc {summary, table: {columns, rows}} khi có >= 2 sản phẩm\n- event: clarification -> Câu hỏi làm rõ {question, options[]} khi yêu cầu còn quá chung (VD: thiếu ngân sách)\n- event: token -> Stream từng từ phản hồi của LLM trong thời gian thực\n- event: suggestions -> Trả về các câu hỏi gợi ý tiếp theo\n- event: done -> Báo hiệu hoàn tất lượt chat",
+        "operationId": "chat_stream_post_api_chat_stream_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Chat Stream Get",
+        "description": "Streaming SSE Chat API (GET) phục vụ Native HTML5 EventSource (token truyền qua ?access_token=).",
+        "operationId": "chat_stream_get_api_chat_stream_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "message",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Message"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "all",
+              "title": "Platform"
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "vi",
+                "en"
+              ],
+              "type": "string",
+              "default": "vi",
+              "title": "Language"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/compare": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Compare Products",
+        "description": "Tool so sánh cho các sản phẩm giao diện đang giữ (VD: danh sách \"Đã lưu\"), không cào lại.\nTrả về {summary, table: {columns, rows}} giống sự kiện SSE `comparison`.",
+        "operationId": "compare_products_api_chat_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/history/{session_id}": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Get Chat History",
+        "operationId": "get_chat_history_api_chat_history__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Delete Chat History",
+        "description": "Xóa đoạn chat: tin nhắn, ngữ cảnh sản phẩm và trạng thái hỏi làm rõ của phiên (RAM + SQLite).",
+        "operationId": "delete_chat_history_api_chat_history__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/search": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Search Products",
+        "operationId": "search_products_api_products_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Từ khóa tìm kiếm sản phẩm",
+              "title": "Q"
+            },
+            "description": "Từ khóa tìm kiếm sản phẩm"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Chọn nguồn: tgdd, dmx, tiki, hoặc all",
+              "default": "all",
+              "title": "Platform"
+            },
+            "description": "Chọn nguồn: tgdd, dmx, tiki, hoặc all"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Mã danh mục",
+              "default": "all",
+              "title": "Category"
+            },
+            "description": "Mã danh mục"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "default": 6,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "force_refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Bắt buộc cào mới bỏ qua cache",
+              "default": false,
+              "title": "Force Refresh"
+            },
+            "description": "Bắt buộc cào mới bỏ qua cache"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}/history": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Get Product Price History",
+        "description": "Lấy toàn bộ lịch sử biến động giá của một sản phẩm.",
+        "operationId": "get_product_price_history_api_products__product_id__history_get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{product_id}": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Get Product Detail",
+        "description": "Lấy thông tin chi tiết của một sản phẩm từ kho CSDL.",
+        "operationId": "get_product_detail_api_products__product_id__get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parse-link/parse": {
+      "post": {
+        "tags": [
+          "Link Parser"
+        ],
+        "summary": "Parse Product Link",
+        "operationId": "parse_product_link_api_parse_link_parse_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parse-link": {
+      "post": {
+        "tags": [
+          "Link Parser"
+        ],
+        "summary": "Parse Product Link",
+        "operationId": "parse_product_link_api_parse_link_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts": {
+      "get": {
+        "tags": [
+          "Price Alerts"
+        ],
+        "summary": "List Price Alerts",
+        "operationId": "list_price_alerts_api_alerts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Price Alerts"
+        ],
+        "summary": "Create Price Alert",
+        "description": "Theo dõi giá một sản phẩm; hệ thống kiểm tra định kỳ và đánh dấu khi giá xuống tới mức mong muốn.",
+        "operationId": "create_price_alert_api_alerts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/{alert_id}": {
+      "delete": {
+        "tags": [
+          "Price Alerts"
+        ],
+        "summary": "Delete Price Alert",
+        "operationId": "delete_price_alert_api_alerts__alert_id__delete",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/{alert_id}/checks": {
+      "get": {
+        "tags": [
+          "Price Alerts"
+        ],
+        "summary": "List Alert Checks",
+        "description": "Nhật ký các lần kiểm tra giá của một yêu cầu (chỉ chủ sở hữu).",
+        "operationId": "list_alert_checks_api_alerts__alert_id__checks_get",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/check": {
+      "post": {
+        "tags": [
+          "Price Alerts"
+        ],
+        "summary": "Check Price Alerts",
+        "description": "Kiểm tra giá ngay (đọc trang sản phẩm thật) các yêu cầu của người dùng, không chờ chu kỳ nền.",
+        "operationId": "check_price_alerts_api_alerts_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheckAlertsRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Req"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/alerts/metrics": {
+      "get": {
+        "tags": [
+          "Price Alerts",
+          "Price Alerts"
+        ],
+        "summary": "Get Price Check Log",
+        "description": "Nhật ký kiểm tra giá của toàn hệ thống (quản trị viên), lọc được theo người dùng.",
+        "operationId": "get_price_check_log_api_alerts_metrics_get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crawler/status": {
+      "get": {
+        "tags": [
+          "Crawler Management"
+        ],
+        "summary": "Xem trạng thái hoạt động của Crawler và CSDL",
+        "description": "Trả về thông tin tổng quan:\n- isRunning: Đang có tiến trình cào ngầm nào chạy không\n- totalProductsInDb: Tổng số lượng sản phẩm trong kho SQLite\n- latestDataUpdate: Thời điểm bản ghi mới nhất được cập nhật\n- lastRunTime: Lần cào gần nhất\n- lastRunStats: Kết quả chi tiết lần cào trước",
+        "operationId": "get_crawler_status_api_crawler_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/crawler/trigger": {
+      "post": {
+        "tags": [
+          "Crawler Management"
+        ],
+        "summary": "Kích hoạt thu thập dữ liệu hàng loạt",
+        "description": "Chủ động kích hoạt đợt cào dữ liệu cho danh mục HOT.\nMặc định chạy ngầm (background=True) để người dùng có thể theo dõi qua GET /crawler/status.",
+        "operationId": "trigger_crawl_api_crawler_trigger_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TriggerCrawlRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "Root"
+        ],
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlertProduct": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "platformName": {
+            "type": "string",
+            "title": "Platformname",
+            "default": ""
+          },
+          "currentPrice": {
+            "type": "number",
+            "title": "Currentprice"
+          },
+          "originalPrice": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Originalprice"
+          },
+          "externalUrl": {
+            "type": "string",
+            "title": "Externalurl",
+            "default": ""
+          },
+          "image": {
+            "type": "string",
+            "title": "Image",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "currentPrice"
+        ],
+        "title": "AlertProduct"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest"
+      },
+      "ChatRequest": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform",
+            "default": "all"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "vi",
+              "en"
+            ],
+            "title": "Language",
+            "default": "vi"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequest"
+      },
+      "ChatResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "criteria": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Criteria"
+          },
+          "recommended_product": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Product"
+          },
+          "products": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Products",
+            "default": []
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suggestions",
+            "default": []
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison"
+          },
+          "clarification": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification"
+          },
+          "relaxed_search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relaxed Search"
+          },
+          "search_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Search Notes",
+            "default": []
+          },
+          "llm_provider": {
+            "type": "string",
+            "title": "Llm Provider",
+            "default": "groq"
+          },
+          "langsmith_tracing": {
+            "type": "boolean",
+            "title": "Langsmith Tracing",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "message"
+        ],
+        "title": "ChatResponse"
+      },
+      "CheckAlertsRequest": {
+        "properties": {
+          "alert_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Ids"
+          }
+        },
+        "type": "object",
+        "title": "CheckAlertsRequest"
+      },
+      "CompareRequest": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductItemModel"
+            },
+            "type": "array",
+            "title": "Products"
+          }
+        },
+        "type": "object",
+        "required": [
+          "products"
+        ],
+        "title": "CompareRequest"
+      },
+      "CreateAlertRequest": {
+        "properties": {
+          "product": {
+            "$ref": "#/components/schemas/AlertProduct"
+          },
+          "target_price": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Target Price",
+            "description": "Báo khi giá bán <= mức này (VND)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product",
+          "target_price"
+        ],
+        "title": "CreateAlertRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "ParseLinkRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ParseLinkRequest"
+      },
+      "ProductItemModel": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "all"
+          },
+          "categoryName": {
+            "type": "string",
+            "title": "Categoryname",
+            "default": "Tất cả"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "tiki",
+              "tgdd",
+              "dmx"
+            ],
+            "title": "Platform"
+          },
+          "platformName": {
+            "type": "string",
+            "title": "Platformname"
+          },
+          "platformBadgeColor": {
+            "type": "string",
+            "title": "Platformbadgecolor",
+            "default": "#ee4d2d"
+          },
+          "platformBadgeBg": {
+            "type": "string",
+            "title": "Platformbadgebg",
+            "default": "rgba(238, 77, 45, 0.15)"
+          },
+          "aiMatchScore": {
+            "type": "integer",
+            "title": "Aimatchscore",
+            "default": 90
+          },
+          "originalPrice": {
+            "type": "number",
+            "title": "Originalprice"
+          },
+          "currentPrice": {
+            "type": "number",
+            "title": "Currentprice"
+          },
+          "discountPercent": {
+            "type": "integer",
+            "title": "Discountpercent",
+            "default": 0
+          },
+          "rating": {
+            "type": "number",
+            "title": "Rating",
+            "default": 4.8
+          },
+          "reviewsCount": {
+            "type": "string",
+            "title": "Reviewscount",
+            "default": "100+ đánh giá"
+          },
+          "sku": {
+            "type": "string",
+            "title": "Sku",
+            "default": ""
+          },
+          "image": {
+            "type": "string",
+            "title": "Image",
+            "default": ""
+          },
+          "specs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Specs",
+            "default": ""
+          },
+          "aiSummary": {
+            "type": "string",
+            "title": "Aisummary",
+            "default": ""
+          },
+          "warranty": {
+            "type": "string",
+            "title": "Warranty",
+            "default": "Chính hãng 12 tháng"
+          },
+          "deliveryTag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverytag",
+            "default": "Freeship"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected",
+            "default": false
+          },
+          "externalUrl": {
+            "type": "string",
+            "title": "Externalurl",
+            "default": ""
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          },
+          "returnPolicy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Returnpolicy"
+          },
+          "detailFetched": {
+            "type": "boolean",
+            "title": "Detailfetched",
+            "default": false
+          },
+          "matchReasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matchreasons"
+          },
+          "attributeMatch": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Attributematch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "platform",
+          "platformName",
+          "originalPrice",
+          "currentPrice"
+        ],
+        "title": "ProductItemModel"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "display_name"
+        ],
+        "title": "RegisterRequest"
+      },
+      "TriggerCrawlRequest": {
+        "properties": {
+          "limit_per_query": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Limit Per Query",
+            "description": "Số sản phẩm lấy tối đa cho mỗi từ khóa",
+            "default": 3
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "description": "Bỏ qua cache, cào dữ liệu mới nhất",
+            "default": true
+          },
+          "background": {
+            "type": "boolean",
+            "title": "Background",
+            "description": "Chạy ngầm không làm đơ Swagger/API",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "TriggerCrawlRequest"
+      },
+      "UpdateProfileRequest": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "UpdateProfileRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

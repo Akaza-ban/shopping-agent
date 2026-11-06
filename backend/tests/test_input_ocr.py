@@ -30,46 +30,46 @@ async def run_extraction(query: str):
     result = await orchestrator.route(state)
 
     print("\n" + "=" * 80)
-    print(f"📥 CÂU LỆNH ĐẦU VÀO: \"{query}\"")
+    print(f"CÂU LỆNH ĐẦU VÀO: \"{query}\"")
     print("=" * 80)
-    print(f"🎯 Ý định (Intent): {result.intent}")
+    print(f"Ý định (Intent): {result.intent}")
 
     if result.criteria:
         c = result.criteria
-        print(f"📂 Ngành hàng (Category):       {c.category_name} ({c.category})")
-        print(f"📦 Loại sản phẩm (Product Type): {c.product_type or 'Chưa xác định'}")
+        print(f"Ngành hàng (Category):       {c.category_name} ({c.category})")
+        print(f"Loại sản phẩm (Product Type): {c.product_type or 'Chưa xác định'}")
         
         # Mức giá
         min_p = f"{c.min_price:,.0f} đ" if c.min_price else "Không giới hạn"
         max_p = f"{c.max_price:,.0f} đ" if c.max_price else "Không giới hạn"
-        print(f"💰 Ngân sách (Budget):          {min_p} -> {max_p}")
+        print(f"Ngân sách (Budget):          {min_p} -> {max_p}")
         
         # Thương hiệu
-        print(f"🏷️  Thương hiệu chỉ định:        {c.brands if c.brands else 'Chưa nêu cụ thể'}")
+        print(f" Thương hiệu chỉ định:        {c.brands if c.brands else 'Chưa nêu cụ thể'}")
         if c.brand_tier:
-            print(f"⭐ Phân khúc thương hiệu:       {c.brand_tier}")
+            print(f"Phân khúc thương hiệu:       {c.brand_tier}")
         if c.suggested_brands:
-            print(f"💡 Gợi ý thương hiệu đầu ngành:  {', '.join(c.suggested_brands)}")
+            print(f"Gợi ý thương hiệu đầu ngành:  {', '.join(c.suggested_brands)}")
 
         # Thuộc tính động
-        print(f"⚙️  Thông số bóc tách (Specs):   {json.dumps(c.attributes, ensure_ascii=False)}")
+        print(f" Thông số bóc tách (Specs):   {json.dumps(c.attributes, ensure_ascii=False)}")
         
         # Mục đích & Ưu tiên
         if c.usage_purpose:
-            print(f"🎯 Nhu cầu sử dụng:             {c.usage_purpose}")
+            print(f"Nhu cầu sử dụng:             {c.usage_purpose}")
         if c.priority:
-            print(f"⚡ Tiêu chí ưu tiên:           {c.priority}")
+            print(f"Tiêu chí ưu tiên:           {c.priority}")
 
-        print(f"🔍 Từ khóa tinh gọn (Cleaned):   \"{c.cleaned_query}\"")
+        print(f"Từ khóa tinh gọn (Cleaned):   \"{c.cleaned_query}\"")
         
-        print("\n📄 TOÀN BỘ JSON DỮ LIỆU:")
+        print("\nTOÀN BỘ JSON DỮ LIỆU:")
         print(json.dumps(c.model_dump(), ensure_ascii=False, indent=2))
     else:
-        print("⚠️ Không bóc tách được tiêu chí (Intent thông thường).")
+        print("Không bóc tách được tiêu chí (Intent thông thường).")
 
 async def main():
     print("=" * 80)
-    print("🚀 BỘ KIỂM THỬ BÓC TÁCH THÔNG TIN ĐẦU VÀO (INPUT OCR & ENTITY EXTRACTOR)")
+    print("BỘ KIỂM THỬ BÓC TÁCH THÔNG TIN ĐẦU VÀO (INPUT OCR & ENTITY EXTRACTOR)")
     print("=" * 80)
 
     # Nếu người dùng truyền câu lệnh qua tham số dòng lệnh
@@ -83,7 +83,7 @@ async def main():
         await run_extraction(query)
 
     print("\n" + "=" * 80)
-    print("💡 MẸO TEST: Bạn có thể test câu bất kỳ bằng cách chạy:")
+    print("MẸO TEST: Bạn có thể test câu bất kỳ bằng cách chạy:")
     print("python tests/test_input_ocr.py \"câu hỏi của bạn ở đây\"")
     print("=" * 80)
 

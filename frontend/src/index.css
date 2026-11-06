@@ -1,9 +1,90 @@
 @import "tailwindcss";
 
+/* Màu nền riêng của ứng dụng (thay cho mã hex viết cứng trong component) */
+@theme {
+  --color-canvas: #faf9f5;  /* nền trang */
+  --color-panel: #fbfaf6;   /* nền phụ của thẻ, tiêu đề bảng */
+  --color-inset: #f6f5f1;   /* ô nhập, vùng lõm */
+  --color-sidebar: #0b0b0a; /* thanh bên luôn tối */
+
+  /* Be Vietnam Pro: thiết kế cho tiếng Việt, dấu chồng (ệ, ữ, ợ) không bị chật ở cỡ chữ nhỏ */
+  --font-sans: 'Be Vietnam Pro', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Giá tiền, số liệu: cùng phông với chữ, số đều nhau (tabular-nums) để thẳng cột thay cho phông đơn cách */
+  --font-mono: var(--font-sans);
+}
+
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
   }
+}
+
+@layer utilities {
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * Chế độ tối: Tailwind 4 sinh utility dạng var(--color-*), nên chỉ cần định nghĩa lại bảng màu
+ * khi <html class="dark"> là mọi component tự đổi màu, không phải thêm dark: vào từng class.
+ * - stone & white: đảo thang sáng/tối (nền tối, chữ sáng; nút chính bg-stone-900 thành nút sáng).
+ * - Màu nhấn: các nền nhạt (50-200) thành sắc tối, chữ đậm (700-950) thành sắc sáng; 300-600 giữ nguyên.
+ */
+.dark {
+  color-scheme: dark;
+
+  --color-canvas: #131210;
+  --color-panel: #1f1e1b;
+  --color-inset: #242320;
+
+  --color-white: #1a1917;
+  --color-stone-50: #201f1c;
+  --color-stone-100: #292825;
+  --color-stone-200: #36342f;
+  --color-stone-300: #4a4741;
+  --color-stone-400: #77736b;
+  --color-stone-500: #9a958c;
+  --color-stone-600: #b3aea5;
+  --color-stone-700: #ccc7be;
+  --color-stone-800: #e0dcd4;
+  --color-stone-900: #f0ede7;
+  --color-stone-950: #faf8f4;
+
+  --color-amber-50: #2a2113;
+  --color-amber-100: #3a2c14;
+  --color-amber-200: #5c4517;
+  --color-amber-700: #f2b544;
+  --color-amber-800: #f7c766;
+  --color-amber-900: #fad889;
+  --color-amber-950: #fde9b8;
+
+  --color-emerald-50: #10261d;
+  --color-emerald-100: #143326;
+  --color-emerald-200: #1d4d39;
+  --color-emerald-700: #4fd19b;
+  --color-emerald-800: #74ddb2;
+  --color-emerald-900: #9be8c8;
+  --color-emerald-950: #c4f2de;
+
+  --color-red-50: #2d1616;
+  --color-red-200: #5a2424;
+  --color-red-700: #f08a8a;
+  --color-red-800: #f4a5a5;
+  --color-red-900: #f8c2c2;
+
+  --color-sky-50: #10222e;
+  --color-sky-700: #6cc4f0;
+  --color-violet-50: #221a33;
+  --color-violet-700: #b9a2f5;
+  --color-rose-50: #2d1620;
+  --color-rose-700: #f39bbb;
+}
+
+/* Ảnh sản phẩm nền trắng: giảm chói trong chế độ tối */
+.dark img {
+  filter: brightness(0.92);
 }
 
 @keyframes fadeIn {

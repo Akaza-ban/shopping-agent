@@ -1,8 +1,10 @@
 import asyncio
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel, Field
-from services.batch_crawler import batch_crawler_service
+from services.catalog.batch_crawler import batch_crawler_service
+from database.models import UserModel
+from src.auth import require_user, require_admin
 
 router = APIRouter(prefix="/crawler", tags=["Crawler Management"])
 
@@ -12,26 +14,17 @@ class TriggerCrawlRequest(BaseModel):
     background: bool = Field(default=True, description="Chạy ngầm không làm đơ Swagger/API")
 
 @router.get("/status", summary="Xem trạng thái hoạt động của Crawler và CSDL")
-async def get_crawler_status():
-    """
-    Trả về thông tin tổng quan:
-    - isRunning: Đang có tiến trình cào ngầm nào chạy không
-    - totalProductsInDb: Tổng số lượng sản phẩm trong kho SQLite
-    - latestDataUpdate: Thời điểm bản ghi mới nhất được cập nhật
-    - lastRunTime: Lần cào gần nhất
-    - lastRunStats: Kết quả chi tiết lần cào trước
-    """
+async def get_crawler_status(user: UserModel = Depends(require_user)):
+    """Trả về thông tin tổng quan:"""
     return await batch_crawler_service.get_crawler_status()
 
 @router.post("/trigger", summary="Kích hoạt thu thập dữ liệu hàng loạt")
 async def trigger_crawl(
     background_tasks: BackgroundTasks,
-    payload: Optional[TriggerCrawlRequest] = None
+    payload: Optional[TriggerCrawlRequest] = None,
+    user: UserModel = Depends(require_admin)
 ):
-    """
-    Chủ động kích hoạt đợt cào dữ liệu cho danh mục HOT.
-    Mặc định chạy ngầm (background=True) để người dùng có thể theo dõi qua GET /crawler/status.
-    """
+    """Chủ động kích hoạt đợt cào dữ liệu cho danh mục HOT."""
     req = payload or TriggerCrawlRequest()
     if batch_crawler_service.is_running:
         return {

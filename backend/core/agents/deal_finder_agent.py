@@ -1,31 +1,39 @@
-from ..state import AgentState
-from ..tools.price_calculator import PriceCalculatorTool
+from ..state import AgentState, ProductItemModel
+
 
 class DealFinderAgent:
-    """Agent chuyên săn voucher, tìm deal sốc và tối ưu hóa chi phí."""
+    """Agent săn deal: đưa các sản phẩm đang giảm giá sâu nhất lên đầu và ghi chú ưu đãi thực tế để Advisor trình bày."""
 
-    def __init__(self):
-        self.calculator = PriceCalculatorTool()
+    @staticmethod
+    def _saving(p: ProductItemModel) -> float:
+        return max(0.0, p.originalPrice - p.currentPrice)
 
     async def find_deals(self, state: AgentState) -> AgentState:
-        if state.found_products:
-            prod = state.found_products[0]
-            if prod.discountPercent > 0:
-                saved = max(0, prod.originalPrice - prod.currentPrice)
-                state.final_response = (
-                    f"🔥 **Ưu đãi thực tế cho sản phẩm:**\n\n"
-                    f"- Sản phẩm: **{prod.name}**\n"
-                    f"- Sàn phân phối: **{prod.platformName}**\n"
-                    f"- Giá gốc: **{prod.originalPrice:,.0f} đ**\n"
-                    f"- Giá khuyến mãi: **{prod.currentPrice:,.0f} đ** *(Giảm {prod.discountPercent}%, tiết kiệm {saved:,.0f} đ)*\n"
-                    f"- Ưu đãi vận chuyển: **{prod.deliveryTag or 'Freeship'}**\n"
-                    f"- Link tham khảo: [{prod.platformName}]({prod.externalUrl})"
-                )
-            else:
-                state.final_response = (
-                    f"Sản phẩm **{prod.name}** trên sàn **{prod.platformName}** hiện đang có giá bán tốt nhất là **{prod.currentPrice:,.0f} đ**.\n"
-                    f"- Link tham khảo: [{prod.platformName}]({prod.externalUrl})"
-                )
-        else:
-            state.final_response = "Vui lòng nhập tên sản phẩm hoặc dán link sản phẩm để tôi tìm kiếm ưu đãi giá thực tế cho bạn!"
+        products = state.found_products
+        if not products:
+            return state
+
+        discounted = sorted(
+            (p for p in products if p.discountPercent > 0 and self._saving(p) > 0),
+            key=lambda p: (p.discountPercent, self._saving(p)),
+            reverse=True
+        )
+        if not discounted:
+            state.search_notes.append(
+                "Không sản phẩm nào trong kết quả đang giảm so với giá niêm yết của sàn; "
+                "chỉ nêu giá hiện tại, không hứa hẹn voucher hay flash sale."
+            )
+            return state
+
+        deal_ids = {p.id for p in discounted}
+        state.found_products = discounted + [p for p in products if p.id not in deal_ids]
+        lines = [
+            f"{p.name} tại {p.platformName}: giảm {p.discountPercent}% "
+            f"({p.originalPrice:,.0f} đ -> {p.currentPrice:,.0f} đ, tiết kiệm {self._saving(p):,.0f} đ)"
+            for p in discounted[:3]
+        ]
+        state.search_notes.append(
+            "Ưu đãi đang có (đã xếp theo mức giảm; giá niêm yết do sàn công bố, chưa gồm voucher riêng của người dùng):\n"
+            + "\n".join(lines)
+        )
         return state

@@ -1,501 +1,254 @@
 import re
-import json
 import logging
 import asyncio
-import subprocess
-import urllib.parse
-import httpx
-from bs4 import BeautifulSoup
-from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from typing import List, Dict, Any, Optional, Tuple
 from .base import BaseTool
 from ..state import UniversalSearchCriteria
 from database.repositories import product_repository
+from services.catalog.data_processor import data_processor
+from services.catalog.semantic_filter import semantic_filter
+from services.rag import rag_service
+from services.catalog.platforms import PlatformAdapter, all_platforms, display_names, resolve_targets
+from services.catalog.platforms.common import strip_attribute_terms, within_price
+from services.catalog.category_resolver import category_resolver, with_noun
+from services.pricing import guardrails as price_guardrails
+from services.catalog.enricher import product_enricher
+from services.catalog.ranker import rank_products, verifiable_attributes
+from datetime import datetime, timezone
 
 logger = logging.getLogger("ecom_search")
+
+PRICE_PHRASE_RE = re.compile(
+    r"(?:\b(?:dưới|trên|từ|khoảng|tầm|giá|tối đa|không quá)\s+)?"
+    r"\d+(?:[.,]\d+)?\s*(?:-|–|đến|tới)?\s*\d*(?:[.,]\d+)?\s*(?:triệu|tr|củ|k|nghìn|ngàn)\b",
+    re.IGNORECASE,
+)
+
+DETAIL_BUDGET_SECONDS = 2.0
+CATEGORY_BUDGET_SECONDS = 6.0
+
+_background_tasks: set = set()
+
+
+@dataclass
+class _Search:
+    """Tham số dùng chung cho mọi bước của một lượt tìm kiếm."""
+    keyword: str
+    criteria: Optional[UniversalSearchCriteria]
+    category: str
+    target_platform: str  # sàn thực sự tìm ("all" = mọi sàn)
+    limit: int
+    notes: List[str]
+
+
+def _interleave(lists, cap: int) -> List[Dict[str, Any]]:
+    """Đan xen kết quả các sàn (1 của sàn A, 1 của sàn B...) để so sánh giá công bằng; tối đa `cap` sản phẩm."""
+    lists = [l for l in lists if l]
+    out: List[Dict[str, Any]] = []
+    for i in range(max((len(l) for l in lists), default=0)):
+        out += [l[i] for l in lists if i < len(l)]
+    return out[:cap]
+
+
+def _run_in_background(coro) -> None:
+    """Chạy việc không ảnh hưởng tới câu trả lời hiện tại (VD lưu kho RAG) mà không bắt người dùng chờ."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 class EcomSearchTool(BaseTool):
     name = "ecom_search"
-    description = "Tìm kiếm sản phẩm thực tế từ các sàn và hệ thống bán lẻ (Tiki, Lazada, Shopee, Thế Giới Di Động, Điện Máy Xanh)"
+    description = f"Tìm kiếm sản phẩm thực tế từ các sàn và hệ thống bán lẻ ({display_names()})"
 
 
-    def __init__(self):
-        self.tiki_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://tiki.vn/"
-        }
+    def __init__(self, platforms: Optional[List[PlatformAdapter]] = None):
+        self.platforms = platforms if platforms is not None else all_platforms()
 
-    async def _search_tiki(
+    def optimize_crawler_query(self, query: str, criteria: Optional[UniversalSearchCriteria]) -> str:
+        """[Tầng 1 - Universal Data-Driven] Tối ưu hóa từ khóa tìm kiếm cho crawler."""
+        q = (criteria.cleaned_query if (criteria and criteria.cleaned_query) else query).strip()
+        q = re.sub(PRICE_PHRASE_RE, " ", q)
+        q = re.sub(r"\s+", " ", q).strip() or query.strip()
+        q_lower = q.lower()
+
+        if criteria and criteria.is_accessory:
+            return q
+
+        if criteria and criteria.target_entity:
+            entity = criteria.target_entity.strip().lower()
+            if entity and entity not in q_lower:
+                return f"{entity} {q}"
+
+
+        return q
+
+    def _annotate_attribute_match(
         self,
-        search_keyword: str,
+        products: List[Dict[str, Any]],
         criteria: Optional[UniversalSearchCriteria],
-        limit: int = 5
+        notes: List[str]
     ) -> List[Dict[str, Any]]:
-        """Gọi API tìm kiếm thực tế từ sàn Tiki."""
-        tiki_products: List[Dict[str, Any]] = []
-        try:
-            params = {"q": search_keyword, "limit": limit * 2}
-            if criteria:
-                if criteria.min_price and criteria.max_price:
-                    params["price"] = f"{int(criteria.min_price)},{int(criteria.max_price)}"
-                elif criteria.min_price:
-                    params["price"] = f"{int(criteria.min_price)},1000000000"
-                elif criteria.max_price:
-                    params["price"] = f"0,{int(criteria.max_price)}"
+        """Kiểm tra các thuộc tính kỹ thuật người dùng yêu cầu (VD:"""
+        if not products or not criteria or not criteria.attributes:
+            return products
+        wanted = verifiable_attributes(criteria)
+        if not wanted:
+            return products
 
-            async with httpx.AsyncClient(headers=self.tiki_headers, follow_redirects=True, timeout=8.0) as client:
-                resp = await client.get(
-                    "https://tiki.vn/api/v2/products",
-                    params=params
-                )
-                if resp.status_code == 200:
-                    raw_data = resp.json().get("data", [])
-                    for item in raw_data:
-                        curr_price = float(item.get("price", 0))
-                        orig_price = float(item.get("original_price") or curr_price)
-                        
-                        # Bộ lọc giá theo criteria của người dùng
-                        if criteria:
-                            if criteria.max_price and curr_price > criteria.max_price:
-                                continue
-                            if criteria.min_price and curr_price < criteria.min_price:
-                                continue
+        def norm(s: str) -> str:
+            return re.sub(r"[\s\-_]+", "", s.lower())
 
-                        rating = float(item.get("rating_average") or 5.0)
-                        reviews_count = item.get("review_count") or 0
-                        thumb = item.get("thumbnail_url") or ""
-                        url_path = item.get("url_path") or ""
+        verified, unverified = [], []
+        for p in products:
+            haystack = norm(f"{p.get('name', '')} {p.get('specs', '')} {p.get('aiSummary', '')}")
+            if all(norm(v) in haystack for v in wanted.values()):
+                verified.append(p)
+            else:
+                unverified.append(p)
 
-                        product_entry = {
-                            "id": f"tiki-{item.get('id', '')}",
-                            "name": str(item.get("name", "")).strip(),
-                            "category": criteria.category if criteria else "all",
-                            "categoryName": criteria.category_name if criteria else "Sản phẩm",
-                            "platform": "tiki",
-                            "platformName": "Tiki Trading",
-                            "platformBadgeColor": "#1a94ff",
-                            "platformBadgeBg": "rgba(26, 148, 255, 0.15)",
-                            "aiMatchScore": 95 if rating >= 4.5 else 85,
-                            "originalPrice": orig_price,
-                            "currentPrice": curr_price,
-                            "discountPercent": int(item.get("discount_rate") or 0),
-                            "rating": rating,
-                            "reviewsCount": f"{reviews_count} đánh giá",
-                            "sku": str(item.get("sku") or f"TIKI-{item.get('id')}"),
-                            "image": thumb,
-                            "aiSummary": f"Sản phẩm thực tế trên Tiki: {item.get('name')}. Đánh giá {rating}/5 với {reviews_count} lượt mua.",
-                            "warranty": "Chính hãng Tiki",
-                            "deliveryTag": "TikiNOW",
-                            "selected": False,
-                            "externalUrl": f"https://tiki.vn/{url_path}" if url_path else "https://tiki.vn"
-                        }
-                        tiki_products.append(product_entry)
-                        if len(tiki_products) >= limit:
-                            break
-        except Exception as e:
-            logger.error(f"Lỗi khi tìm kiếm Tiki: {e}")
-
-        return tiki_products
-
-    async def _search_lazada(
-        self,
-        search_keyword: str,
-        criteria: Optional[UniversalSearchCriteria],
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-        """Gọi API Catalog thực tế từ sàn Lazada qua native async client."""
-        lazada_products: List[Dict[str, Any]] = []
-        try:
-            encoded_q = urllib.parse.quote(search_keyword)
-            api_url = f"https://www.lazada.vn/catalog/?q={encoded_q}&ajax=true"
-
-            # Tích hợp bộ lọc giá trực tiếp vào query param của Lazada
-            if criteria:
-                if criteria.min_price and criteria.max_price:
-                    api_url += f"&price={int(criteria.min_price)}-{int(criteria.max_price)}"
-                elif criteria.max_price:
-                    api_url += f"&price=-{int(criteria.max_price)}"
-                elif criteria.min_price:
-                    api_url += f"&price={int(criteria.min_price)}-"
-
-            cmd = [
-                "curl.exe", "-s", "-L",
-                "--compressed",
-                "--max-time", "6",
-                "--connect-timeout", "3",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "-H", "Referer: https://www.lazada.vn/",
-                "-H", "x-requested-with: XMLHttpRequest",
-                "-H", "Accept: application/json, text/plain, */*",
-                api_url
-            ]
-
-            def _exec_curl():
-                return subprocess.run(cmd, capture_output=True, timeout=7.0)
-
-            try:
-                proc_res = await asyncio.to_thread(_exec_curl)
-            except subprocess.TimeoutExpired:
-                logger.warning("Lazada search timed out sau 7s.")
-                return []
-            except Exception as proc_err:
-                logger.warning(f"Lỗi khi chạy curl Lazada: {proc_err}")
-                return []
-
-            if proc_res.returncode == 0 and proc_res.stdout:
-                raw_text = proc_res.stdout.decode("utf-8", errors="ignore").strip()
-                if not raw_text or not (raw_text.startswith("{") or raw_text.startswith("[")):
-                    return []
-                try:
-                    res_data = json.loads(raw_text)
-                except Exception as json_err:
-                    logger.warning(f"Không thể parse JSON từ Lazada: {json_err}")
-                    return []
-
-                items = res_data.get("mods", {}).get("listItems", [])
-                
-                for item in items:
-                    raw_price = item.get("price")
-                    if raw_price is None:
-                        continue
-                    try:
-                        curr_price = float(raw_price)
-                    except (ValueError, TypeError):
-                        continue
-
-                    # Fallback lọc giá nếu query param chưa phủ hết
-                    if criteria:
-                        if criteria.max_price and curr_price > criteria.max_price:
-                            continue
-                        if criteria.min_price and curr_price < criteria.min_price:
-                            continue
-
-                    orig_price_raw = item.get("originalPrice") or curr_price
-                    try:
-                        orig_price = float(orig_price_raw)
-                    except (ValueError, TypeError):
-                        orig_price = curr_price
-
-                    # Tính toán tỷ lệ giảm giá (%)
-                    discount_pct = 0
-                    discount_str = str(item.get("discount") or "")
-                    disc_match = re.search(r"(\d+)%", discount_str)
-                    if disc_match:
-                        discount_pct = int(disc_match.group(1))
-                    elif orig_price > curr_price and orig_price > 0:
-                        discount_pct = int(round((1 - curr_price / orig_price) * 100))
-
-                    try:
-                        rating = float(item.get("ratingScore") or 5.0)
-                    except (ValueError, TypeError):
-                        rating = 5.0
-
-                    reviews_count = item.get("review") or 0
-                    item_id = str(item.get("itemId") or item.get("nid") or "")
-                    name = str(item.get("name") or "").strip()
-                    thumb = item.get("image") or ""
-                    seller = item.get("sellerName") or "Lazada Seller"
-                    item_url = item.get("itemUrl") or ""
-                    if item_url.startswith("//"):
-                        item_url = f"https:{item_url}"
-                    elif not item_url.startswith("http"):
-                        item_url = f"https://www.lazada.vn{item_url}"
-
-                    is_lazmall = "lazmall" in str(item.get("icons", [])).lower() or "official" in seller.lower()
-
-                    product_entry = {
-                        "id": f"lazada-{item_id}",
-                        "name": name,
-                        "category": criteria.category if criteria else "all",
-                        "categoryName": criteria.category_name if criteria else "Sản phẩm",
-                        "platform": "lazada",
-                        "platformName": "LazMall" if is_lazmall else "Lazada",
-                        "platformBadgeColor": "#0f156d",
-                        "platformBadgeBg": "rgba(15, 21, 109, 0.15)",
-                        "aiMatchScore": 95 if rating >= 4.5 else 85,
-                        "originalPrice": orig_price,
-                        "currentPrice": curr_price,
-                        "discountPercent": discount_pct,
-                        "rating": rating,
-                        "reviewsCount": f"{reviews_count} đánh giá",
-                        "sku": str(item.get("sku") or f"LAZ-{item_id}"),
-                        "image": thumb,
-                        "aiSummary": f"Sản phẩm thực tế trên Lazada từ gian hàng {seller}: {name}. Đánh giá {rating}/5.",
-                        "warranty": "Chính hãng 100%" if is_lazmall else "Theo chính sách gian hàng",
-                        "deliveryTag": "LazFlash / Giao nhanh",
-                        "selected": False,
-                        "externalUrl": item_url
-                    }
-                    lazada_products.append(product_entry)
-                    if len(lazada_products) >= limit:
-                        break
-
-        except Exception as e:
-            logger.error(f"Lỗi khi tìm kiếm Lazada ({type(e).__name__}): {e}", exc_info=True)
-
-        return lazada_products
-
-    async def _search_shopee(
-        self,
-        search_keyword: str,
-        criteria: Optional[UniversalSearchCriteria],
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-        """
-        Gọi API tìm kiếm sàn Shopee.
-        Shopee áp dụng hệ thống bảo mật SeaShield/WAF (yêu cầu Captcha trượt và token af-ac-enc-dat).
-        Hệ thống gửi request chuẩn; nếu gặp kiểm tra Captcha (error 90309999), sẽ xử lý an toàn và không gây crash.
-        """
-        shopee_products: List[Dict[str, Any]] = []
-        try:
-            encoded_q = urllib.parse.quote(search_keyword)
-            api_url = (
-                f"https://shopee.vn/api/v4/search/search_items?"
-                f"by=relevancy&keyword={encoded_q}&limit={limit}&newest=0&order=desc"
-                f"&page_type=search&scenario=PAGE_GLOBAL_SEARCH&version=2"
+        wanted_text = ", ".join(f"{k}={v}" for k, v in wanted.items())
+        if not verified:
+            notes.append(
+                f"KHÔNG sản phẩm nào xác nhận được yêu cầu kỹ thuật ({wanted_text}) từ tên/thông số thu thập được. "
+                f"Không được khẳng định các sản phẩm dưới đây đáp ứng yêu cầu này."
             )
-            cmd = [
-                "curl.exe", "-s", "-L",
-                "--compressed",
-                "--max-time", "6",
-                "--connect-timeout", "3",
-                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                "-H", "Referer: https://shopee.vn/",
-                "-H", "Accept: application/json",
-                "-H", "x-api-source: pc",
-                "-H", "x-shopee-language: vi",
-                "-H", "x-requested-with: XMLHttpRequest",
-                api_url
-            ]
+        elif unverified:
+            notes.append(
+                f"Chỉ {len(verified)}/{len(products)} sản phẩm xác nhận có {wanted_text} (xếp đầu danh sách); "
+                f"các sản phẩm còn lại CHƯA xác minh được thông số này."
+            )
+        return verified + unverified
 
-            def _exec_curl():
-                return subprocess.run(cmd, capture_output=True, timeout=7.0)
+    @staticmethod
+    def _freshness_note(products: List[Dict[str, Any]]) -> Optional[str]:
+        """Ghi chú độ mới của dữ liệu nếu lấy từ cache/kho lưu (có updatedAt)."""
+        ages = []
+        now = datetime.now(timezone.utc)
+        for p in products:
+            raw = p.get("updatedAt")
+            if not raw:
+                continue
+            try:
+                ts = datetime.fromtimestamp(float(raw), tz=timezone.utc) if str(raw).replace(".", "").isdigit() \
+                    else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)  # DB lưu datetime.utcnow() không kèm múi giờ
+                ages.append((now - ts).total_seconds() / 3600)
+            except (ValueError, OSError):
+                continue
+        if not ages:
+            return None
+        oldest = max(ages)
+        if oldest < 1:
+            return None
+        age_text = f"{oldest:.0f} giờ" if oldest < 48 else f"{oldest / 24:.0f} ngày"
+        return f"Dữ liệu giá cũ nhất trong danh sách được cập nhật cách đây khoảng {age_text}; giá thực tế có thể đã thay đổi."
 
-            proc_res = await asyncio.to_thread(_exec_curl)
-            if proc_res.returncode == 0 and proc_res.stdout:
-                raw_text = proc_res.stdout.decode("utf-8", errors="ignore").strip()
-                if not raw_text or not (raw_text.startswith("{") or raw_text.startswith("[")):
-                    return []
-                try:
-                    res_data = json.loads(raw_text)
-                except Exception:
-                    return []
-
-                # Trường hợp Shopee kích hoạt thử thách xác minh bot (Error 90309999)
-                if res_data.get("error") == 90309999 or res_data.get("action_type") == 2:
-                    logger.warning("Shopee kích hoạt cơ chế bảo vệ SeaShield/WAF (Yêu cầu xác minh người dùng). Cần Open API Token hoặc dán link sản phẩm trực tiếp.")
-                    return []
-
-                raw_items = res_data.get("items", []) or []
-                for entry in raw_items:
-                    basic = entry.get("item_basic", {})
-                    if not basic:
-                        continue
-                    item_id = str(basic.get("itemid", ""))
-                    shop_id = str(basic.get("shopid", ""))
-                    name = str(basic.get("name", "")).strip()
-
-                    # Shopee lưu giá nhân 100,000 (VND * 100000)
-                    raw_price = basic.get("price", 0)
-                    curr_price = float(raw_price) / 100000.0 if raw_price > 1000000 else float(raw_price)
-                    orig_price_raw = basic.get("price_before_discount", 0)
-                    orig_price = float(orig_price_raw) / 100000.0 if orig_price_raw > 1000000 else curr_price
-
-                    if criteria:
-                        if criteria.max_price and curr_price > criteria.max_price:
-                            continue
-                        if criteria.min_price and curr_price < criteria.min_price:
-                            continue
-
-                    rating = float(basic.get("item_rating", {}).get("rating_star", 5.0) or 5.0)
-                    reviews_count = basic.get("historical_sold", 0)
-                    image_id = basic.get("image", "")
-                    thumb = f"https://down-vn.img.susercontent.com/file/{image_id}" if image_id else ""
-                    is_mall = bool(basic.get("is_official_shop") or basic.get("show_official_shop_label"))
-
-                    product_entry = {
-                        "id": f"shopee-{item_id}",
-                        "name": name,
-                        "category": criteria.category if criteria else "all",
-                        "categoryName": criteria.category_name if criteria else "Sản phẩm",
-                        "platform": "shopee",
-                        "platformName": "Shopee Mall" if is_mall else "Shopee",
-                        "platformBadgeColor": "#ee4d2d",
-                        "platformBadgeBg": "rgba(238, 77, 45, 0.15)",
-                        "aiMatchScore": 95 if rating >= 4.5 else 85,
-                        "originalPrice": orig_price,
-                        "currentPrice": curr_price,
-                        "discountPercent": int(basic.get("raw_discount", 0)),
-                        "rating": rating,
-                        "reviewsCount": f"{reviews_count} đã bán",
-                        "sku": f"SHOPEE-{item_id}",
-                        "image": thumb,
-                        "aiSummary": f"Sản phẩm thực tế trên Shopee: {name}. Đánh giá {rating:.1f}/5 với {reviews_count} lượt bán.",
-                        "warranty": "Chính hãng 100%" if is_mall else "Theo chính sách Shop",
-                        "deliveryTag": "Shopee Xpress",
-                        "selected": False,
-                        "externalUrl": f"https://shopee.vn/product/{shop_id}/{item_id}"
-                    }
-                    shopee_products.append(product_entry)
-                    if len(shopee_products) >= limit:
-                        break
-        except Exception as e:
-            logger.warning(f"Lỗi khi tìm kiếm Shopee: {e}")
-
-        return shopee_products
-
-    async def _search_mwg(
+    async def _finalize(
         self,
-        platform: str,
+        products: List[Dict[str, Any]],
+        criteria: Optional[UniversalSearchCriteria],
+        notes: List[str],
+        limit: int,
+        detail_budget: float = DETAIL_BUDGET_SECONDS
+    ) -> List[Dict[str, Any]]:
+        """Bước chung cho mọi nguồn (cache, RAG, cào trực tiếp):"""
+        if not products:
+            return products
+        products = await product_enricher.enrich(products, max_items=max(limit * 2, 8), budget_seconds=detail_budget)
+        references = await product_repository.get_reference_prices([p.get("name", "") for p in products])
+        products, rejected = price_guardrails.screen_products(products, references)
+        if rejected:
+            notes.append(f"Đã loại {len(rejected)} sản phẩm có giá bất thường (nghi đọc nhầm giá trả góp, phụ kiện hoặc lỗi trang).")
+        products = self._annotate_attribute_match(products, criteria, notes)
+        if criteria:
+            products, rank_notes = rank_products(products, criteria)
+            notes.extend(rank_notes)
+        freshness = self._freshness_note(products[:limit])
+        if freshness and freshness not in notes:
+            notes.append(freshness)
+        return products[:limit]
+
+    async def _store_in_rag(self, products: List[Dict[str, Any]]) -> None:
+        try:
+            stored = await asyncio.to_thread(rag_service.upsert_products, products)
+            logger.info(f"[Self-Populating RAG] Đã nạp {stored}/{len(products)} sản phẩm mới cào vào ChromaDB!")
+        except Exception as rag_upsert_err:
+            logger.warning(f"Lỗi tự động nạp vào ChromaDB: {rag_upsert_err}")
+
+    async def _crawl(
+        self,
         search_keyword: str,
         criteria: Optional[UniversalSearchCriteria],
-        limit: int = 5
-    ) -> List[Dict[str, Any]]:
-        """
-        Cào dữ liệu sản phẩm thực tế từ hệ thống bán lẻ Thế Giới Di Động (tgdd) hoặc Điện Máy Xanh (dmx).
-        Dữ liệu SSR có cấu trúc giàu thông tin, không yêu cầu captcha.
-        """
-        domain = "https://www.thegioididong.com" if platform == "tgdd" else "https://www.dienmayxanh.com"
-        platform_name = "Thế Giới Di Động" if platform == "tgdd" else "Điện Máy Xanh"
-        badge_color = "#ffd400" if platform == "tgdd" else "#0083d1"
-        badge_bg = "rgba(255, 212, 0, 0.15)" if platform == "tgdd" else "rgba(0, 131, 209, 0.15)"
-        warranty = "Chính hãng TGDĐ (1 đổi 1 tháng đầu)" if platform == "tgdd" else "Chính hãng ĐMX (Lắp đặt tận nhà)"
-        delivery_tag = "Giao nhanh 2h" if platform == "tgdd" else "Giao hàng & Lắp đặt"
+        platform: str,
+        limit: int,
+        notes: List[str],
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+        """Cào song song các sàn và làm sạch dữ liệu; trả về (sản phẩm, số sản phẩm theo sàn)."""
+        targets = self._target_platforms(platform, criteria, notes)
+        crawler_query = self.optimize_crawler_query(search_keyword, criteria)
+        if crawler_query != search_keyword:
+            logger.info(f"[Layer 1 Universal] Query gốc: '{search_keyword}' -> Query crawler: '{crawler_query}'")
 
-        mwg_products: List[Dict[str, Any]] = []
+        cap = max(limit * 3, 12)
+        per_platform = await self._search_platforms(targets, crawler_query, criteria, cap, notes, search_keyword)
+        await self._apply_categories(per_platform, criteria)
+
+        source_counts = {pid: len(items) for pid, items in per_platform.items()}
+        return data_processor.process_product_list(_interleave(per_platform.values(), cap)), source_counts
+
+    def _target_platforms(self, platform: str, criteria: Optional[UniversalSearchCriteria],
+                          notes: List[str]) -> List[PlatformAdapter]:
+        """Sàn cần tìm: sàn chọn trên giao diện / router trích từ câu hỏi; sàn không hỗ trợ thì tìm mọi sàn."""
+        wanted = [platform] if (platform and platform != "all") else ((criteria.target_platforms or ["all"]) if criteria else ["all"])
+        target_ids = {p.id for p in resolve_targets(wanted)}
+        targets = [p for p in self.platforms if p.id in target_ids]
+        if targets:
+            return targets
+        notes.append(f"Hệ thống không tìm trên sàn này; kết quả lấy từ {display_names()}.")
+        return list(self.platforms)
+
+    @staticmethod
+    async def _search_platforms(targets, query, criteria, cap, notes, user_query) -> Dict[str, List[Dict[str, Any]]]:
+        """Gọi song song các sàn; sàn lỗi trả về danh sách rỗng, không làm hỏng cả lượt."""
+        results = await asyncio.gather(
+            *(p.search(query, criteria, cap, notes, user_query=user_query) for p in targets), return_exceptions=True)
+        per_platform: Dict[str, List[Dict[str, Any]]] = {}
+        for p, res in zip(targets, results):
+            if isinstance(res, Exception):
+                logger.warning(f"[{p.name}] Lỗi khi tìm kiếm: {res}")
+            per_platform[p.id] = res if isinstance(res, list) else []
+        return per_platform
+
+    async def _apply_categories(self, per_platform: Dict[str, List[Dict[str, Any]]],
+                                criteria: Optional[UniversalSearchCriteria]) -> None:
+        """Gán ngành hàng theo danh mục của sàn (CategoryResolver) và bỏ phụ kiện khi người dùng không tìm phụ kiện."""
+        items = [p for lst in per_platform.values() for p in lst]
+        if not items:
+            return
+        task = asyncio.create_task(category_resolver.resolve(items))
         try:
-            encoded_q = urllib.parse.quote(search_keyword)
-            search_url = f"{domain}/tim-kiem?key={encoded_q}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": f"{domain}/"
-            }
-            async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=8.0) as client:
-                resp = await client.get(search_url)
-                if resp.status_code == 200 and resp.text:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    items = soup.select("li.item[data-id]:not(.merge__item)")
-                    for item in items:
-                        a_tag = item.select_one("a.main-contain, a[href]")
-                        if not a_tag:
-                            continue
-
-                        name = a_tag.get("data-name") or ""
-                        if not name:
-                            title_tag = item.select_one("h3, p.product-title")
-                            if title_tag:
-                                name = title_tag.get_text(strip=True)
-                                name = re.sub(r'Mẫu mới|Hàng sắp về', '', name).strip()
-                        if not name:
-                            continue
-
-                        raw_price_attr = item.get("data-price") or a_tag.get("data-price")
-                        curr_price = 0.0
-                        if raw_price_attr:
-                            try:
-                                curr_price = float(raw_price_attr)
-                            except (ValueError, TypeError):
-                                pass
-                        if curr_price <= 0:
-                            price_elem = item.select_one(".price, strong.price")
-                            if price_elem:
-                                cleaned = re.sub(r'[^\d]', '', price_elem.get_text())
-                                if cleaned:
-                                    curr_price = float(cleaned)
-                        if curr_price <= 0:
-                            continue
-
-                        # Lọc giá theo criteria của người dùng
-                        if criteria:
-                            if criteria.max_price and curr_price > criteria.max_price:
-                                continue
-                            if criteria.min_price and curr_price < criteria.min_price:
-                                continue
-
-                        orig_price = curr_price
-                        discount_pct = 0
-                        old_price_elem = item.select_one(".price-old, .strike, box-p .price-old")
-                        if old_price_elem:
-                            cleaned_old = re.sub(r'[^\d]', '', old_price_elem.get_text())
-                            if cleaned_old:
-                                try:
-                                    orig_price = float(cleaned_old)
-                                except ValueError:
-                                    orig_price = curr_price
-
-                        percent_elem = item.select_one(".percent")
-                        if percent_elem:
-                            pct_m = re.search(r'(\d+)%', percent_elem.get_text())
-                            if pct_m:
-                                discount_pct = int(pct_m.group(1))
-                        elif orig_price > curr_price:
-                            discount_pct = int(round((1 - curr_price / orig_price) * 100))
-
-                        href = a_tag.get("href", "")
-                        if href and not href.startswith("http"):
-                            href = f"{domain}{href}"
-
-                        img_elem = item.select_one(".item-img img, img")
-                        thumb = ""
-                        if img_elem:
-                            thumb = img_elem.get("src") or img_elem.get("data-src") or ""
-                            if thumb.startswith("//"):
-                                thumb = f"https:{thumb}"
-
-                        rating = 5.0
-                        vote_elem = item.select_one(".vote-txt b, .vote-txt")
-                        if vote_elem:
-                            try:
-                                vote_val = float(re.sub(r'[^\d\.]', '', vote_elem.get_text()) or 5.0)
-                                if 1.0 <= vote_val <= 5.0:
-                                    rating = vote_val
-                            except Exception:
-                                rating = 5.0
-
-                        reviews_count = "Chính hãng"
-                        sold_elem = item.select_one(".rating_Compare span")
-                        if sold_elem:
-                            reviews_count = sold_elem.get_text(strip=True).lstrip("•").strip()
-
-                        utility_p = [p.get_text(strip=True) for p in item.select(".utility p") if p.get_text(strip=True)]
-                        specs_str = " - ".join(utility_p) if utility_p else ""
-                        ai_summary = f"Sản phẩm thực tế tại {platform_name}: {name}. {specs_str}" if specs_str else f"Sản phẩm thực tế tại {platform_name}: {name}."
-
-                        item_id = item.get("data-id") or ""
-
-                        product_entry = {
-                            "id": f"{platform}-{item_id}",
-                            "name": name,
-                            "category": criteria.category if criteria else "all",
-                            "categoryName": criteria.category_name if criteria else "Sản phẩm",
-                            "platform": platform,
-                            "platformName": platform_name,
-                            "platformBadgeColor": badge_color,
-                            "platformBadgeBg": badge_bg,
-                            "aiMatchScore": 95 if rating >= 4.5 else 85,
-                            "originalPrice": orig_price,
-                            "currentPrice": curr_price,
-                            "discountPercent": discount_pct,
-                            "rating": rating,
-                            "reviewsCount": reviews_count,
-                            "sku": f"{platform.upper()}-{item_id}",
-                            "image": thumb,
-                            "aiSummary": ai_summary,
-                            "warranty": warranty,
-                            "deliveryTag": delivery_tag,
-                            "selected": False,
-                            "externalUrl": href
-                        }
-                        mwg_products.append(product_entry)
-                        if len(mwg_products) >= limit:
-                            break
+            await asyncio.wait_for(asyncio.shield(task), CATEGORY_BUDGET_SECONDS)
+        except asyncio.TimeoutError:
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
+            logger.info("Quy đổi danh mục mới chưa xong, tiếp tục ở nền; sản phẩm lượt này giữ ngành hàng tạm")
         except Exception as e:
-            logger.warning(f"Lỗi khi tìm kiếm {platform_name}: {e}")
-
-        return mwg_products
+            logger.warning(f"Lỗi quy đổi danh mục: {e}")
+        wants_accessory = bool(criteria and criteria.is_accessory)
+        for pid, lst in per_platform.items():
+            kept = []
+            for p in lst:
+                mapping = category_resolver.lookup(p)
+                if mapping is None:
+                    kept.append(p)  # chưa rõ: để bộ lọc ngữ nghĩa phía sau quyết định
+                    continue
+                if mapping.is_accessory and not wants_accessory:
+                    continue
+                kept.append({**p, "category": mapping.category, "name": with_noun(p.get("name", ""), mapping.noun)})
+            per_platform[pid] = kept
 
     async def run(
         self,
@@ -504,136 +257,100 @@ class EcomSearchTool(BaseTool):
         criteria: Optional[UniversalSearchCriteria] = None,
         platform: str = "all",
         limit: int = 6,
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        notes: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Thực hiện tìm kiếm sản phẩm thực tế từ các chuỗi bán lẻ: Tiki, Thế Giới Di Động, Điện Máy Xanh.
-        Áp dụng cơ chế Cache-First (kiểm tra SQLite trước, chỉ cào mạng khi chưa có hoặc hết hạn).
-        Không sử dụng dữ liệu giả lập (mock data).
-        """
-        search_keyword = criteria.cleaned_query if (criteria and criteria.cleaned_query) else query
-        if not search_keyword.strip():
+        """Tìm sản phẩm thật trên các sàn:"""
+        search = self._prepare(query, category, criteria, platform, limit, notes)
+        if search is None:
             return []
 
-        # Xác định sàn mục tiêu
-        effective_platform = platform.lower().strip() if (platform and platform != "all") else "all"
-        if effective_platform == "all" and criteria and criteria.target_platforms:
-            effective_platform = criteria.target_platforms[0].lower().strip()
-
-        # =====================================================================
-        # 1. KIỂM TRA BỘ NHỚ ĐỆM (CACHE-FIRST) TRƯỚC KHI CÀO MẠNG
-        # =====================================================================
         if not force_refresh:
-            try:
-                cached_products = await product_repository.get_cached_search(
-                    query=search_keyword,
-                    platform=effective_platform
-                )
-                if cached_products:
-                    # Áp dụng bộ lọc giá criteria nếu có
-                    filtered_cached = []
-                    for p in cached_products:
-                        curr_p = float(p.get("currentPrice", 0))
-                        if criteria:
-                            if criteria.max_price and curr_p > criteria.max_price:
-                                continue
-                            if criteria.min_price and curr_p < criteria.min_price:
-                                continue
-                        filtered_cached.append(p)
-                        if len(filtered_cached) >= limit:
-                            break
-                    if filtered_cached:
-                        logger.info(
-                            f"⚡ [Cache Hit] Trả về {len(filtered_cached)} sản phẩm từ SQLite cho '{search_keyword}' (platform={effective_platform}) trong <20ms"
-                        )
-                        return filtered_cached
-            except Exception as cache_err:
-                logger.warning(f"Lỗi kiểm tra cache SQLite: {cache_err}")
+            cached = await self._from_cache(search)
+            if cached:
+                return cached
 
-        # =====================================================================
-        # 2. NẾU CHƯA CÓ TRONG CACHE -> CÀO MẠNG THỰC TẾ (CACHE MISS)
-        # =====================================================================
-        if platform and platform != "all":
-            target_platforms = [platform.lower()]
-        else:
-            target_platforms = [p.lower() for p in (criteria.target_platforms or ["all"])] if criteria else ["all"]
+        crawl_notes: List[str] = []
+        crawl = asyncio.create_task(self._crawl(search.keyword, criteria, platform, limit, crawl_notes))
+        if not force_refresh:
+            stored = await self._from_rag(search)
+            if stored:
+                crawl.cancel()
+                return stored
 
-        products: List[Dict[str, Any]] = []
-
-        # Tạm thời tắt cào Lazada và Shopee theo yêu cầu
-        should_search_lazada = False
-        should_search_shopee = False
-
-        # Quyết định sàn tìm kiếm dựa trên yêu cầu (Ưu tiên các nguồn ổn định: Tiki, TGDĐ, ĐMX)
-        should_search_tiki = "all" in target_platforms or "tiki" in target_platforms
-        should_search_tgdd = "all" in target_platforms or "tgdd" in target_platforms or "thegioididong" in target_platforms
-        should_search_dmx = "all" in target_platforms or "dmx" in target_platforms or "dienmayxanh" in target_platforms
-
-        if "lazada" in target_platforms or "shopee" in target_platforms:
-            logger.info("ℹ️ Kênh Lazada và Shopee đang tạm thời dừng thu thập theo cấu hình.")
-
-        tasks = []
-        platform_order = []
-        if should_search_tgdd:
-            tasks.append(self._search_mwg("tgdd", search_keyword, criteria, limit=limit))
-            platform_order.append("tgdd")
-        if should_search_dmx:
-            tasks.append(self._search_mwg("dmx", search_keyword, criteria, limit=limit))
-            platform_order.append("dmx")
-        if should_search_tiki:
-            tasks.append(self._search_tiki(search_keyword, criteria, limit=limit))
-            platform_order.append("tiki")
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        platform_results: Dict[str, List[Dict[str, Any]]] = {
-            "tgdd": [],
-            "dmx": [],
-            "tiki": []
-        }
-
-        for idx, plat_name in enumerate(platform_order):
-            res = results[idx]
-            if isinstance(res, list):
-                platform_results[plat_name] = res
-
-        tgdd_res = platform_results["tgdd"]
-        dmx_res = platform_results["dmx"]
-        tiki_res = platform_results["tiki"]
-
-        # Đan xen kết quả đa nguồn (TGDĐ, ĐMX, Tiki) để so sánh giá tối ưu
-        active_lists = [l for l in [tgdd_res, dmx_res, tiki_res] if l]
-        max_len = max([len(l) for l in active_lists]) if active_lists else 0
-
-        for i in range(max_len):
-            for l in active_lists:
-                if i < len(l):
-                    products.append(l[i])
-                    if len(products) >= limit:
-                        break
-            if len(products) >= limit:
-                break
-
-        logger.info(
-            f"🔍 Tìm kiếm thực tế cho '{search_keyword}': {len(tgdd_res)} TGDD, "
-            f"{len(dmx_res)} DMX, {len(tiki_res)} Tiki -> Trả về: {len(products)} sản phẩm."
-        )
-
-        # =====================================================================
-        # 3. TỰ ĐỘNG LƯU VÀO CSDL VÀ CẬP NHẬT CACHE CHO LẦN SAU
-        # =====================================================================
-        if products:
-            try:
-                await product_repository.save_search_cache(
-                    query=search_keyword,
-                    platform=effective_platform,
-                    products=products,
-                    ttl_hours=2  # Ghi nhớ trong vòng 2 tiếng
-                )
-            except Exception as save_err:
-                logger.warning(f"Lỗi tự động lưu cache CSDL: {save_err}")
-
+        products = await self._from_crawl(search, crawl, crawl_notes)
+        await self._remember(search, products)
         return products
 
+    def _prepare(self, query, category, criteria, platform, limit, notes) -> Optional[_Search]:
+        """Từ khóa thực sự tìm và sàn mục tiêu (sàn chọn trên giao diện, hoặc sàn router trích từ câu hỏi)."""
+        keyword = criteria.cleaned_query if (criteria and criteria.cleaned_query) else query
+        if not keyword.strip():
+            return None
+        target = platform.lower().strip() if (platform and platform != "all") else "all"
+        if target == "all" and criteria and criteria.target_platforms:
+            target = criteria.target_platforms[0].lower().strip()
+        return _Search(keyword=keyword, criteria=criteria, category=category, target_platform=target,
+                       limit=limit, notes=notes if notes is not None else [])
 
+    async def _from_cache(self, s: _Search) -> Optional[List[Dict[str, Any]]]:
+        """Kết quả đã lưu cho đúng từ khóa (SQLite, < 5 ms), lọc lại theo khoảng giá của lượt này."""
+        try:
+            cached = await product_repository.get_cached_search(query=s.keyword, platform=s.target_platform)
+        except Exception as e:
+            logger.warning(f"Lỗi kiểm tra cache SQLite: {e}")
+            return None
+        hits = [p for p in cached or [] if within_price(float(p.get("currentPrice", 0)), s.criteria)]
+        if not hits:
+            return None
+        logger.info(f"[SQLite Cache Hit] {len(hits)} sản phẩm cho '{s.keyword}' (platform={s.target_platform})")
+        return await self._finalize(hits, s.criteria, s.notes, s.limit, detail_budget=0)
 
+    async def _from_rag(self, s: _Search) -> Optional[List[Dict[str, Any]]]:
+        """Sản phẩm tương đồng trong kho RAG, đã qua bộ lọc ngữ nghĩa; None nếu kho không có gì dùng được."""
+        c = s.criteria
+        category = c.category if (c and c.category != "all") else (s.category if s.category != "all" else None)
+        try:
+            found = await asyncio.to_thread(
+                rag_service.search, query=s.keyword, category=category,
+                min_price=c.min_price if c else None, max_price=c.max_price if c else None,
+                platform=s.target_platform if s.target_platform != "all" else None, limit=s.limit * 2,
+            )
+            found = await self._semantic_filter(found, s) if found else []
+        except Exception as e:
+            logger.warning(f"Lỗi kiểm tra RAG ChromaDB: {e}")
+            return None
+        if not found:
+            return None
+        logger.info(f"[RAG Vector Hit] {len(found)} sản phẩm từ ChromaDB cho '{s.keyword}' "
+                    f"(khớp cao nhất {found[0].get('aiMatchScore')}%)")
+        s.notes.append(
+            "Kết quả lấy từ kho dữ liệu đã thu thập trước đó (tìm theo độ tương đồng), "
+            "không phải quét trực tiếp lúc này: giá và tình trạng hàng có thể đã thay đổi, "
+            "và có thể không khớp chính xác tên model người dùng hỏi."
+        )
+        return await self._finalize(found, s.criteria, s.notes, s.limit)
+
+    async def _from_crawl(self, s: _Search, crawl: "asyncio.Task", crawl_notes: List[str]) -> List[Dict[str, Any]]:
+        """Kết quả cào trực tiếp (đã chạy song song từ trước): lọc ngữ nghĩa rồi xếp hạng."""
+        products, source_counts = await crawl
+        s.notes.extend(crawl_notes)
+        products = await self._semantic_filter(products, s)
+        logger.info(f"Tìm kiếm thực tế cho '{s.keyword}': {source_counts} -> sau thẩm định AI: {len(products)} sản phẩm")
+        return await self._finalize(products, s.criteria, s.notes, s.limit)
+
+    async def _semantic_filter(self, products: List[Dict[str, Any]], s: _Search) -> List[Dict[str, Any]]:
+        kept, _ = await semantic_filter.filter_products(
+            query=strip_attribute_terms(s.keyword, s.criteria) or s.keyword, products=products, criteria=s.criteria)
+        return kept
+
+    async def _remember(self, s: _Search, products: List[Dict[str, Any]]) -> None:
+        """Lưu kết quả cào: kho RAG (tính embedding ở nền, chỉ phục vụ lần sau) và cache SQLite 2 giờ."""
+        if not products:
+            return
+        _run_in_background(self._store_in_rag(products))
+        try:
+            await product_repository.save_search_cache(
+                query=s.keyword, platform=s.target_platform, products=products, ttl_hours=2)
+        except Exception as e:
+            logger.warning(f"Lỗi tự động lưu cache CSDL: {e}")

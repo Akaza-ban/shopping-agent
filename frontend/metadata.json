@@ -1,7 +1,6 @@
+{
   "name": "Shopping AI - AI Shopping Assistant Agent",
-  "description": "Hệ thống trợ lý mua sắm AI thông minh: Tra cứu & đối chiếu sản phẩm, rà soát rủi ro đánh giá, làm rõ nhu cầu tương tác và lập hồ sơ mua hàng tối ưu.",
+  "description": "Trợ lý mua sắm AI: hiểu nhu cầu bằng ngôn ngữ tự nhiên, thu thập dữ liệu từ các sàn, lọc, so sánh và xếp hạng sản phẩm, tra cứu chính sách bảo hành và đổi trả giữa các nền tảng.",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

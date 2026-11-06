@@ -13,7 +13,7 @@ sys.path.insert(0, ".")
 from fastapi.testclient import TestClient
 from src.main import app
 from database.connection import init_db, close_db
-from services.batch_crawler import batch_crawler_service
+from services.catalog.batch_crawler import batch_crawler_service
 
 client = TestClient(app)
 

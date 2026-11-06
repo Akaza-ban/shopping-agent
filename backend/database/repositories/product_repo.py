@@ -1,28 +1,20 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..connection import async_session
 from ..models import ProductModel, PriceHistoryModel, SearchCacheModel
+from services.catalog.platforms import get_platform
 
 logger = logging.getLogger("product_repo")
 
 def product_model_to_dict(model: ProductModel) -> Dict[str, Any]:
     """Chuyển đổi ORM Model sang Dictionary tương thích với giao diện và Agent."""
-    badge_colors = {
-        "tgdd": ("#ffd400", "rgba(255, 212, 0, 0.15)"),
-        "dmx": ("#0083d1", "rgba(0, 131, 209, 0.15)"),
-        "tiki": ("#1a94ff", "rgba(26, 148, 255, 0.15)"),
-        "shopee": ("#ee4d2d", "rgba(238, 77, 45, 0.15)"),
-        "lazada": ("#0f156d", "rgba(15, 21, 109, 0.15)")
-    }
-    badge_color, badge_bg = badge_colors.get(
-        model.platform,
-        ("#1a94ff", "rgba(26, 148, 255, 0.15)")
-    )
+    platform = get_platform(model.platform)
+    badge_color, badge_bg = (platform.badge_color, platform.badge_bg) if platform else ("#1a94ff", "rgba(26, 148, 255, 0.15)")
     
     sku_suffix = model.id.split("-")[-1] if "-" in model.id else model.id
 
@@ -31,6 +23,7 @@ def product_model_to_dict(model: ProductModel) -> Dict[str, Any]:
         "name": model.name,
         "category": model.category,
         "categoryName": model.category_name,
+        "sourceCategoryPath": model.source_category_path,
         "platform": model.platform,
         "platformName": model.platform_name,
         "platformBadgeColor": badge_color,
@@ -43,7 +36,7 @@ def product_model_to_dict(model: ProductModel) -> Dict[str, Any]:
         "reviewsCount": model.reviews_count,
         "sku": f"{model.platform.upper()}-{sku_suffix}",
         "image": model.image,
-        "specs": model.specs or "",
+        "specs": (json.loads(model.specs) if model.specs and model.specs.startswith("{") else (model.specs or "")),
         "aiSummary": model.ai_summary or f"Sản phẩm thực tế tại {model.platform_name}: {model.name}.",
         "warranty": model.warranty or "Theo chính sách gian hàng",
         "deliveryTag": model.delivery_tag or "Giao hàng tiêu chuẩn",
@@ -52,6 +45,79 @@ def product_model_to_dict(model: ProductModel) -> Dict[str, Any]:
         "updatedAt": model.updated_at.isoformat() if model.updated_at else None
     }
 
+
+def _field(item: Dict[str, Any], camel: str, snake: str, default: Any = None) -> Any:
+    """Giá trị theo tên khóa của giao diện (camelCase) hoặc của CSDL (snake_case)."""
+    return item.get(camel) or item.get(snake, default)
+
+
+def _prices(item: Dict[str, Any]) -> Tuple[float, float, int]:
+    """(giá bán, giá gốc, % giảm); thiếu giá gốc thì lấy bằng giá bán."""
+    current = float(_field(item, "currentPrice", "current_price") or 0.0)
+    original = float(_field(item, "originalPrice", "original_price") or current)
+    return current, original, int(_field(item, "discountPercent", "discount_percent") or 0)
+
+
+def _specs_text(item: Dict[str, Any]) -> str:
+    raw = item.get("specs")
+    return json.dumps(raw, ensure_ascii=False) if isinstance(raw, dict) else str(raw or "")
+
+
+def _price_point(prod_id: str, prices: Tuple[float, float, int]) -> PriceHistoryModel:
+    current, original, discount = prices
+    return PriceHistoryModel(product_id=prod_id, price=current, original_price=original,
+                             discount_percent=discount, recorded_at=datetime.utcnow())
+
+
+def _new_product(prod_id: str, item: Dict[str, Any], prices: Tuple[float, float, int]) -> ProductModel:
+    from services.catalog.categories import categorize  # tránh import vòng với services
+    current, original, discount = prices
+    now = datetime.utcnow()
+    return ProductModel(
+        id=prod_id,
+        name=str(item.get("name", "")).strip(),
+        category=categorize(item),
+        source_category_path=item.get("sourceCategoryPath"),
+        category_name=_field(item, "categoryName", "category_name", "Sản phẩm"),
+        platform=item.get("platform", "other"),
+        platform_name=_field(item, "platformName", "platform_name", "Cửa hàng"),
+        original_price=original,
+        current_price=current,
+        discount_percent=discount,
+        rating=float(item.get("rating") or 0.0),  # 0 = chưa có đánh giá
+        reviews_count=str(_field(item, "reviewsCount", "reviews_count") or "Chính hãng"),
+        image=item.get("image", ""),
+        specs=_specs_text(item),
+        ai_summary=_field(item, "aiSummary", "ai_summary", ""),
+        warranty=item.get("warranty", "Chính hãng"),
+        delivery_tag=_field(item, "deliveryTag", "delivery_tag", "Giao nhanh"),
+        external_url=_field(item, "externalUrl", "external_url", ""),
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _update_product(existing: ProductModel, item: Dict[str, Any], prices: Tuple[float, float, int]) -> None:
+    """Ghi đè giá; các trường khác chỉ ghi khi lần cào này có dữ liệu (không xóa dữ liệu cũ bằng giá trị rỗng)."""
+    from services.catalog.categories import categorize  # tránh import vòng với services
+    existing.current_price, existing.original_price, existing.discount_percent = prices
+    if item.get("rating"):
+        existing.rating = float(item["rating"])
+    if _field(item, "reviewsCount", "reviews_count"):
+        existing.reviews_count = str(_field(item, "reviewsCount", "reviews_count"))
+    if item.get("specs"):
+        existing.specs = _specs_text(item)
+    if item.get("image"):
+        existing.image = item["image"]
+    if _field(item, "externalUrl", "external_url"):
+        existing.external_url = _field(item, "externalUrl", "external_url")
+    if item.get("sourceCategoryPath"):
+        existing.source_category_path = item["sourceCategoryPath"]
+    existing.category = categorize({"sourceCategoryPath": existing.source_category_path,
+                                    "externalUrl": existing.external_url})
+    existing.updated_at = datetime.utcnow()
+
+
 class ProductRepository:
     """Repository quản lý lưu trữ, truy xuất và theo dõi lịch sử giá của sản phẩm."""
 
@@ -59,114 +125,36 @@ class ProductRepository:
         self.session_factory = session_factory
 
     async def upsert_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Tự động nạp hoặc cập nhật danh sách sản phẩm vào CSDL.
-        Nếu phát hiện giá thay đổi, tự động ghi nhận mốc mới vào price_history.
-        """
-        if not products:
-            return []
-
-        saved_products: List[Dict[str, Any]] = []
-
+        """Thêm mới hoặc cập nhật sản phẩm; giá đổi thì ghi thêm một mốc vào price_history."""
+        saved: List[Dict[str, Any]] = []
         async with self.session_factory() as session:
-            for item in products:
+            for item in products or []:
                 prod_id = str(item.get("id", "")).strip()
                 if not prod_id:
                     continue
-
-                curr_price = float(item.get("currentPrice") or item.get("current_price") or 0.0)
-                orig_price = float(item.get("originalPrice") or item.get("original_price") or curr_price)
-                disc_pct = int(item.get("discountPercent") or item.get("discount_percent") or 0)
-                
-                # Kiểm tra sản phẩm đã có trong DB chưa
+                prices = _prices(item)
                 existing = await session.get(ProductModel, prod_id)
-
                 if existing is None:
-                    # 1. Thêm mới hoàn toàn
-                    new_product = ProductModel(
-                        id=prod_id,
-                        name=str(item.get("name", "")).strip(),
-                        category=item.get("category", "all"),
-                        category_name=item.get("categoryName") or item.get("category_name", "Sản phẩm"),
-                        platform=item.get("platform", "other"),
-                        platform_name=item.get("platformName") or item.get("platform_name", "Cửa hàng"),
-                        original_price=orig_price,
-                        current_price=curr_price,
-                        discount_percent=disc_pct,
-                        rating=float(item.get("rating") or 5.0),
-                        reviews_count=str(item.get("reviewsCount") or item.get("reviews_count") or "Chính hãng"),
-                        image=item.get("image", ""),
-                        specs=item.get("specs", ""),
-                        ai_summary=item.get("aiSummary") or item.get("ai_summary", ""),
-                        warranty=item.get("warranty", "Chính hãng"),
-                        delivery_tag=item.get("deliveryTag") or item.get("delivery_tag", "Giao nhanh"),
-                        external_url=item.get("externalUrl") or item.get("external_url", ""),
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    session.add(new_product)
-
-                    # Ghi mốc lịch sử giá ban đầu
-                    price_entry = PriceHistoryModel(
-                        product_id=prod_id,
-                        price=curr_price,
-                        original_price=orig_price,
-                        discount_percent=disc_pct,
-                        recorded_at=datetime.utcnow()
-                    )
-                    session.add(price_entry)
-                    saved_products.append(product_model_to_dict(new_product))
-
+                    model = _new_product(prod_id, item, prices)
+                    session.add(model)
+                    session.add(_price_point(prod_id, prices))  # mốc giá ban đầu
                 else:
-                    # 2. Cập nhật sản phẩm đã có
-                    price_has_changed = abs(existing.current_price - curr_price) >= 1.0
-
-                    if price_has_changed:
-                        # Ghi nhận biến động giá vào bảng price_history
-                        price_entry = PriceHistoryModel(
-                            product_id=prod_id,
-                            price=curr_price,
-                            original_price=orig_price,
-                            discount_percent=disc_pct,
-                            recorded_at=datetime.utcnow()
-                        )
-                        session.add(price_entry)
-                        logger.info(
-                            f"📈 Ghi nhận biến động giá cho '{existing.name}': "
-                            f"{existing.current_price:,.0f}đ -> {curr_price:,.0f}đ"
-                        )
-
-                    # Cập nhật thông tin mới nhất
-                    existing.current_price = curr_price
-                    existing.original_price = orig_price
-                    existing.discount_percent = disc_pct
-                    if item.get("rating"):
-                        existing.rating = float(item["rating"])
-                    if item.get("reviewsCount") or item.get("reviews_count"):
-                        existing.reviews_count = str(item.get("reviewsCount") or item.get("reviews_count"))
-                    if item.get("specs"):
-                        existing.specs = item["specs"]
-                    if item.get("image"):
-                        existing.image = item["image"]
-                    if item.get("externalUrl") or item.get("external_url"):
-                        existing.external_url = item.get("externalUrl") or item.get("external_url")
-                    existing.updated_at = datetime.utcnow()
-
-                    saved_products.append(product_model_to_dict(existing))
-
+                    model = existing
+                    if abs(existing.current_price - prices[0]) >= 1.0:
+                        session.add(_price_point(prod_id, prices))
+                        logger.info(f"Ghi nhận biến động giá cho '{existing.name}': "
+                                    f"{existing.current_price:,.0f}đ -> {prices[0]:,.0f}đ")
+                    _update_product(existing, item, prices)
+                saved.append(product_model_to_dict(model))
             await session.commit()
-
-        return saved_products
+        return saved
 
     async def get_cached_search(
         self,
         query: str,
         platform: str = "all"
     ) -> Optional[List[Dict[str, Any]]]:
-        """
-        Kiểm tra xem từ khóa này đã có kết quả cache trong DB và còn hạn sử dụng hay không.
-        Trả về None nếu cache không tồn tại hoặc đã hết hạn.
-        """
+        """Kiểm tra xem từ khóa này đã có kết quả cache trong DB và còn hạn sử dụng hay không."""
         clean_q = query.lower().strip()
         clean_plat = platform.lower().strip()
 
@@ -195,7 +183,6 @@ class ProductRepository:
             if not product_ids:
                 return None
 
-            # Lấy sản phẩm từ database theo danh sách IDs đã lưu trong cache
             prod_stmt = select(ProductModel).where(ProductModel.id.in_(product_ids))
             prod_res = await session.execute(prod_stmt)
             products_map = {p.id: product_model_to_dict(p) for p in prod_res.scalars().all()}
@@ -204,7 +191,7 @@ class ProductRepository:
             ordered_products = [products_map[pid] for pid in product_ids if pid in products_map]
             
             if ordered_products:
-                logger.info(f"⚡ Cache Hit: Trả về {len(ordered_products)} sản phẩm cho '{clean_q}' ({clean_plat})")
+                logger.info(f"Cache Hit: Trả về {len(ordered_products)} sản phẩm cho '{clean_q}' ({clean_plat})")
                 return ordered_products
 
         return None
@@ -216,9 +203,7 @@ class ProductRepository:
         products: List[Dict[str, Any]],
         ttl_hours: int = 2
     ) -> None:
-        """
-        Lưu danh sách sản phẩm và ghi nhận từ khóa vào bảng search_cache với thời gian hết hạn TTL.
-        """
+        """Lưu danh sách sản phẩm và ghi nhận từ khóa vào bảng search_cache với thời gian hết hạn TTL."""
         if not products:
             return
 
@@ -249,7 +234,7 @@ class ProductRepository:
             )
             session.add(new_cache)
             await session.commit()
-            logger.info(f"💾 Đã lưu cache tìm kiếm cho '{clean_q}' ({clean_plat}) - Hết hạn trong {ttl_hours}h")
+            logger.info(f"Đã lưu cache tìm kiếm cho '{clean_q}' ({clean_plat}) - Hết hạn trong {ttl_hours}h")
 
     async def get_price_history(self, product_id: str) -> List[Dict[str, Any]]:
         """Lấy toàn bộ lịch sử biến động giá của một sản phẩm."""
@@ -280,6 +265,46 @@ class ProductRepository:
             if prod:
                 return product_model_to_dict(prod)
         return None
+
+    async def get_reference_prices(self, names: List[str]) -> Dict[str, List[float]]:
+        """Giá đã lưu của các bản ghi cùng tên, theo khóa `guardrails.product_key` (để phát hiện giá bất thường)."""
+        from services.pricing.guardrails import product_key
+        names = list({n for n in names if n})
+        if not names:
+            return {}
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(ProductModel.name, ProductModel.current_price).where(ProductModel.name.in_(names))
+            )
+            refs: Dict[str, List[float]] = {}
+            for name, price in rows.all():
+                if price:
+                    refs.setdefault(product_key(name), []).append(float(price))
+            return refs
+
+    async def find_by_name_terms(self, terms: List[str], limit: int = 300) -> List[Dict[str, Any]]:
+        """Sản phẩm có tên chứa đủ mọi từ khóa (không phân biệt hoa thường): id, tên, sàn, giá."""
+        terms = [t.lower() for t in terms if t]
+        if not terms:
+            return []
+        anchor = max(terms, key=len)
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(ProductModel.id, ProductModel.name, ProductModel.platform, ProductModel.current_price)
+                .where(ProductModel.name.ilike(f"%{anchor}%")).limit(limit))
+            return [{"id": pid, "name": name, "platform": platform, "currentPrice": price}
+                    for pid, name, platform, price in rows.all()
+                    if all(t in (name or "").lower() for t in terms)]
+
+    async def delete_products(self, product_ids: List[str]) -> int:
+        """Xóa sản phẩm cùng lịch sử giá của chúng (SQLite không tự cascade khi chưa bật foreign_keys)."""
+        if not product_ids:
+            return 0
+        async with self.session_factory() as session:
+            await session.execute(delete(PriceHistoryModel).where(PriceHistoryModel.product_id.in_(product_ids)))
+            res = await session.execute(delete(ProductModel).where(ProductModel.id.in_(product_ids)))
+            await session.commit()
+            return res.rowcount or 0
 
 # Singleton instance sẵn sàng dùng trong toàn ứng dụng
 product_repository = ProductRepository()

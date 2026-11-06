@@ -3,7 +3,7 @@ from core.tools.ecom_search import EcomSearchTool
 from core.state import UniversalSearchCriteria
 
 @pytest.mark.anyio
-async def test_search_tiki_and_lazada_concurrent():
+async def test_search_platforms_concurrent():
     tool = EcomSearchTool()
     criteria = UniversalSearchCriteria(
         category="laptop",
@@ -17,7 +17,7 @@ async def test_search_tiki_and_lazada_concurrent():
     
     assert len(products) > 0
     for p in products:
-        assert p["platform"] in ["tiki", "lazada", "tgdd", "dmx", "shopee"]
+        assert p["platform"] in ["tiki", "tgdd", "dmx"]
         assert p["currentPrice"] > 0
         assert len(p["name"]) > 0
         assert p["externalUrl"].startswith("http")

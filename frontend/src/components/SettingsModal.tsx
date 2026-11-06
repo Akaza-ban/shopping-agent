@@ -1,38 +1,34 @@
-import React, { useState } from 'react';
-import { X, Check, ShieldCheck, Sliders, Bell, Store } from 'lucide-react';
+import React from 'react';
+import { X, Store } from 'lucide-react';
+import { PLATFORMS } from '../services/shoppingService.ts';
+import { DataWarehousePanel } from './DataWarehousePanel.tsx';
+import { t } from '../i18n/index.tsx';
 
 interface SettingsModalProps {
   isOpen: boolean;
+  enabledPlatformIds: string[];
+  onChangePlatforms: (ids: string[]) => void;
   onClose: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [platforms, setPlatforms] = useState({
-    shopeeMall: true,
-    tikiTrading: true,
-    lazadaFlagship: true,
-    aaspOfficial: true,
-  });
-
-  const [riskFilters, setRiskFilters] = useState({
-    hardwareUpgradability: true,
-    fakeReviewSeeding: true,
-    warrantyConditions: true,
-    priceTrendAlert: true
-  });
-
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  enabledPlatformIds,
+  onChangePlatforms,
+  onClose,
+}) => {
   if (!isOpen) return null;
+
+  const toggle = (id: string, checked: boolean) =>
+    onChangePlatforms(checked ? [...enabledPlatformIds, id] : enabledPlatformIds.filter(x => x !== id));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl animate-scaleUp overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-stone-200 flex items-center justify-between bg-[#fbfaf6]">
+        <div className="p-5 border-b border-stone-200 flex items-center justify-between bg-panel">
           <div className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-stone-800" />
-            <h3 className="text-sm font-bold text-stone-900">
-              Cài đặt Tiêu chí & Nguồn Dữ liệu Mua sắm
-            </h3>
+            <Store className="w-4 h-4 text-stone-800" />
+            <h3 className="text-sm font-bold text-stone-900">{t('Nguồn & kho dữ liệu')}</h3>
           </div>
           <button
             onClick={onClose}
@@ -42,68 +38,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-6 text-xs leading-relaxed max-h-[70vh] overflow-y-auto">
-          {/* Section 1: Platforms */}
-          <div className="space-y-3">
-            <span className="font-bold text-stone-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <Store className="w-3.5 h-3.5 text-stone-700" />
-              Nguồn sàn TMĐT được phép trích xuất:
-            </span>
-            <div className="space-y-2">
-              {[
-                { key: 'shopeeMall', label: 'Shopee Mall (Gian hàng chính hãng có tem đỏ)' },
-                { key: 'tikiTrading', label: 'Tiki Trading / Tiki Official phân phối trực tiếp' },
-                { key: 'lazadaFlagship', label: 'Lazada Flagship Store (LazMall)' },
-                { key: 'aaspOfficial', label: 'Đại lý ủy quyền Apple AASP (CellphoneS, TopZone, FPT)' },
-              ].map((item) => (
-                <label key={item.key} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-stone-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={platforms[item.key as keyof typeof platforms]}
-                    onChange={(e) => setPlatforms({ ...platforms, [item.key]: e.target.checked })}
-                    className="rounded text-stone-900 focus:ring-stone-900"
-                  />
-                  <span className="text-stone-800">{item.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Section 2: Risk Filters */}
-          <div className="space-y-3 pt-3 border-t border-stone-200">
-            <span className="font-bold text-stone-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-              Bộ lọc cảnh báo rủi ro tự động:
-            </span>
-            <div className="space-y-2">
-              {[
-                { key: 'hardwareUpgradability', label: 'Cảnh báo linh kiện hàn chết (RAM, SSD onboard không thể nâng cấp)' },
-                { key: 'fakeReviewSeeding', label: 'Tự động phát hiện và loại trừ đánh giá seeding gian lận' },
-                { key: 'warrantyConditions', label: 'Kiểm tra ngoại lệ bảo hành điểm chết màn hình và seal hộp' },
-                { key: 'priceTrendAlert', label: 'Cảnh báo khi giá đang cao hơn mức đáy lịch sử 90 ngày' },
-              ].map((item) => (
-                <label key={item.key} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-stone-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={riskFilters[item.key as keyof typeof riskFilters]}
-                    onChange={(e) => setRiskFilters({ ...riskFilters, [item.key]: e.target.checked })}
-                    className="rounded text-stone-900 focus:ring-stone-900"
-                  />
-                  <span className="text-stone-800">{item.label}</span>
-                </label>
-              ))}
-            </div>
+        <div className="p-6 space-y-2 text-xs max-h-[70vh] overflow-y-auto">
+          <div className="text-stone-900 font-bold pb-1">{t('Nguồn dữ liệu được phép thu thập')}</div>
+          {PLATFORMS.map((p) => (
+            <label key={p.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-stone-50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabledPlatformIds.includes(p.id)}
+                onChange={(e) => toggle(p.id, e.target.checked)}
+                className="rounded text-stone-900 focus:ring-stone-900"
+              />
+              <span className="text-stone-800 font-medium">{p.name}</span>
+              <span className="text-[11px] text-stone-500">· {t(p.type)}</span>
+            </label>
+          ))}
+          <div className="pt-4 mt-2 border-t border-stone-200">
+            <DataWarehousePanel />
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-stone-200 bg-stone-50 flex justify-end gap-2">
+        <div className="p-4 border-t border-stone-200 bg-stone-50 flex justify-end">
           <button
             onClick={onClose}
             className="px-4 py-2 bg-stone-900 text-amber-50 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors"
           >
-            Lưu cài đặt
+            Xong
           </button>
         </div>
       </div>

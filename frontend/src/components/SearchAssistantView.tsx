@@ -1,190 +1,478 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Send, 
-  Sparkles, 
-  CheckCircle2, 
-  RotateCw, 
-  ShieldCheck, 
-  FileText, 
-  ExternalLink, 
-  ThumbsUp, 
-  AlertCircle, 
-  HelpCircle, 
+import {
+  Send,
+  Sparkles,
+  CheckCircle2,
+  RotateCw,
+  ShieldCheck,
+  ExternalLink,
   X,
   ChevronRight,
   BookOpen,
-  Calendar,
-  Layers,
-  ArrowRight
+  ArrowRight,
+  Star,
+  Table2,
+  Bookmark,
+  BookmarkCheck,
+  ChevronDown,
+  AlertTriangle,
+  ImageOff,
+  MessageSquarePlus,
+  BellRing
 } from 'lucide-react';
-import { ChatMessage, CitationItem, ClarificationQuestion, ReasoningStep } from '../types.ts';
-import { SAMPLE_CITATIONS, runReasoningPipeline } from '../services/geminiService.ts';
+import { ChatConversation, ChatMessage, ChatRequest, CitationItem, PolicyRequest, ProductItem, ReasoningStep } from '../types.ts';
+import { getPlatformName } from '../services/shoppingService.ts';
+import { API_BASE_URL, compareProducts, deleteConversation, newConversationId, streamChat } from '../services/agentApi.ts';
+import { usePersistentState } from '../hooks/usePersistentState.ts';
+import { useSyncedState } from '../hooks/useSyncedState.ts';
+import { ComparisonTable } from './ComparisonTable.tsx';
+import { ConversationList } from './ConversationList.tsx';
+import { Markdown } from './Markdown.tsx';
+import { PolicyDrawer } from './policy/PolicyDrawer.tsx';
+import { currentLocale, msg, t, useI18n } from '../i18n/index.tsx';
 
 interface SearchAssistantViewProps {
-  onOpenDossier: () => void;
+  userId: string;
+  savedIds: string[];
+  request: ChatRequest | null;
+  onRequestHandled: () => void;
+  onToggleSave: (product: ProductItem, sourceQuery: string) => void;
+  trackedIds: string[]; // sản phẩm đang được theo dõi giá
+  onTrackPrice: (product: ProductItem) => void;
+  onResults: (query: string, products: ProductItem[]) => void;
+  onOpenPolicy: (request?: PolicyRequest) => void;
 }
 
+const nowTime = () => new Date().toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' });
+
+const WELCOME_MESSAGE: ChatMessage = {
+  id: 'msg-welcome',
+  sender: 'assistant',
+  content: msg('Xin chào, tôi là trợ lý mua sắm AI. Hãy mô tả nhu cầu của bạn (ngân sách, cấu hình, mục đích sử dụng), tôi sẽ tìm kiếm trên các sàn, lọc, so sánh và đề xuất sản phẩm phù hợp nhất.'),
+  timestamp: msg('Hôm nay')
+};
+
+const MAX_CONVERSATIONS = 30;
+const MAX_TITLE_LENGTH = 80;
+
+// Tên đoạn chat = câu hỏi đầu tiên người dùng nhập (rút gọn nếu quá dài)
+const makeTitle = (text: string) => {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > MAX_TITLE_LENGTH ? `${clean.slice(0, MAX_TITLE_LENGTH - 1)}…` : clean;
+};
+
+const errorMessage = (err: unknown): ChatMessage => ({
+  id: `ai-err-${Date.now()}`,
+  sender: 'assistant',
+  content: t('Không kết nối được tới trợ lý tại **{url}** ({error}). Hãy kiểm tra backend đã chạy bằng `uvicorn src.main:app --port 8000` trong thư mục backend rồi thử lại.', {
+    url: API_BASE_URL,
+    error: err instanceof Error ? err.message : String(err),
+  }),
+  timestamp: nowTime(),
+  isError: true
+});
+
+// Nhãn hiển thị cho các giai đoạn `status` mà graph LangGraph phát ra
+const STAGE_LABELS: Record<string, string> = {
+  routing: msg('Phân tích yêu cầu bằng LLM'),
+  retrieval: msg('Thu thập dữ liệu từ kho & các sàn'),
+  relaxing: msg('Nới lỏng tiêu chí để tìm phương án gần nhất'),
+  upsell: msg('Tìm thêm ngoài ngân sách cho đúng cấu hình'),
+  parsing_link: msg('Bóc tách liên kết sản phẩm'),
+  finding_deal: msg('Săn deal & mức giảm giá'),
+  comparing: msg('Gọi tool so sánh'),
+  synthesizing: msg('Soạn lời khuyên'),
+};
+
+const formatVnd = (n: number) => `${n.toLocaleString(currentLocale())} ₫`;
+
+// Nguồn trích dẫn = trang sản phẩm thật mà agent đã thu thập
+const buildCitations = (products: ProductItem[]): CitationItem[] =>
+  products.map((p, i) => ({
+    id: `cite-${p.id}`,
+    index: i + 1,
+    sourceName: t('{name} tại {retailer}', { name: p.name, retailer: p.retailer }),
+    platformId: p.platformId,
+    price: formatVnd(p.currentPrice),
+    officialPrice: p.originalPrice > p.currentPrice ? formatVnd(p.originalPrice) : undefined,
+    excerpt: [p.warranty, p.returnPolicy, ...Object.entries(p.keySpecs).slice(0, 4).map(([k, v]) => `${k}: ${v}`)]
+      .filter(Boolean)
+      .join(' · '),
+    verifiedDate: p.updatedAt ? new Date(p.updatedAt).toLocaleString(currentLocale()) : t('Vừa thu thập'),
+    url: p.productUrl
+  }));
+
+// Kết quả đối chiếu thông số bắt buộc (VD: GPU) với trang chi tiết sản phẩm
+const AttributeBadge: React.FC<{ product: ProductItem }> = ({ product }) => {
+  const status = Object.values(product.attributeMatch ?? {});
+  if (!status.length) return null;
+  if (status.includes('mismatch')) {
+    return <span className="text-[10px] font-semibold text-red-800 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">{t('Không đúng cấu hình yêu cầu')}</span>;
+  }
+  if (status.every(v => v === 'verified')) {
+    return <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">{t('Đúng cấu hình yêu cầu')}</span>;
+  }
+  return <span className="text-[10px] font-semibold text-stone-600 bg-stone-50 border border-stone-200 px-1.5 py-0.5 rounded">{t('Chưa xác minh cấu hình')}</span>;
+};
+
+const ProductCard: React.FC<{
+  product: ProductItem;
+  rank: number;
+  isSaved: boolean;
+  onToggleSave: () => void;
+  isTracked: boolean;
+  onTrackPrice: () => void;
+  onOpenPolicy: () => void;
+}> = ({ product, rank, isSaved, onToggleSave, isTracked, onTrackPrice, onOpenPolicy }) => (
+  <div className="flex gap-3 p-3 bg-panel border border-stone-200 rounded-xl">
+    <div className="relative shrink-0">
+      {product.imageUrl ? (
+        <img src={product.imageUrl} alt={product.name} className="w-20 h-20 rounded-lg object-contain bg-white overflow-hidden text-[0px]" loading="lazy" />
+      ) : (
+        <div className="w-20 h-20 rounded-lg bg-stone-100 flex items-center justify-center text-stone-400">
+          <ImageOff className="w-5 h-5" />
+        </div>
+      )}
+      <span className="absolute -top-1.5 -left-1.5 w-6 h-6 rounded-full bg-stone-900 text-amber-50 text-[11px] font-bold flex items-center justify-center">
+        {rank}
+      </span>
+    </div>
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="flex items-start justify-between gap-2">
+        <h4 className="text-xs font-bold text-stone-900 line-clamp-2">{product.name}</h4>
+        <span className="shrink-0 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+          {t('Phù hợp {score}%', { score: product.matchScore })}
+        </span>
+      </div>
+      <div className="text-[11px] text-stone-500">
+        {product.retailer} · {getPlatformName(product.platformId)}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-mono font-bold text-stone-900">{formatVnd(product.currentPrice)}</span>
+        {product.originalPrice > product.currentPrice && (
+          <span className="font-mono text-[11px] text-stone-400 line-through">{formatVnd(product.originalPrice)}</span>
+        )}
+        <span className="flex items-center gap-0.5 text-[11px] text-stone-600">
+          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+          {product.rating > 0 ? product.rating : t('Chưa có đánh giá')}
+          {product.reviewsLabel && product.rating > 0 ? ` (${product.reviewsLabel})` : ''}
+        </span>
+        <AttributeBadge product={product} />
+      </div>
+      {(product.pros[0] || product.cons[0]) && (
+        <div className="text-[11px] text-stone-600">
+          {product.pros[0] && <span className="text-emerald-700">+ {product.pros[0]}</span>}
+          {product.pros[0] && product.cons[0] && <span className="mx-1.5 text-stone-300">|</span>}
+          {product.cons[0] && <span className="text-red-700">− {product.cons[0]}</span>}
+        </div>
+      )}
+      {(product.warranty || product.returnPolicy) && (
+        <div className="text-[11px] text-stone-500 line-clamp-1">
+          <ShieldCheck className="inline w-3 h-3 mr-0.5 text-emerald-700" />
+          {[product.warranty, product.returnPolicy].filter(Boolean).join(' · ')}
+        </div>
+      )}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onToggleSave}
+          className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+            isSaved ? 'text-amber-800' : 'text-stone-700 hover:text-stone-950'
+          }`}
+        >
+          {isSaved ? <BookmarkCheck className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
+          {isSaved ? t('Đã lưu') : t('Lưu sản phẩm')}
+        </button>
+        <button
+          onClick={onTrackPrice}
+          className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isTracked ? 'text-amber-800' : 'text-stone-700 hover:text-stone-950'}`}
+        >
+          <BellRing className="w-3.5 h-3.5" />
+          {isTracked ? t('Đang theo dõi giá') : t('Theo dõi giá')}
+        </button>
+        <button onClick={onOpenPolicy} className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 hover:text-stone-950">
+          <ShieldCheck className="w-3.5 h-3.5" />
+          {t('Chính sách')}
+        </button>
+        <a
+          href={product.productUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-700 hover:text-stone-950"
+        >
+          {t('Xem tại sàn')} <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+    </div>
+  </div>
+);
+
 export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
-  onOpenDossier,
+  userId,
+  savedIds,
+  request,
+  onRequestHandled,
+  onToggleSave,
+  trackedIds,
+  onTrackPrice,
+  onResults,
+  onOpenPolicy,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'msg-welcome',
-      sender: 'assistant',
-      content: 'Xin chào, tôi là trợ lý mua sắm AI có trích dẫn căn cứ. Tôi có thể hỗ trợ bạn tra cứu thông số kỹ thuật, đối chiếu giá sàn lịch sử từ các gian hàng chính hãng (Shopee Mall, Tiki Official, AASP), rà soát rủi ro bảo hành và lọc đánh giá seeding. Bạn muốn tìm kiếm sản phẩm nào hôm nay?',
-      timestamp: 'Hôm nay',
-      feedbackState: 'useful'
-    }
-  ]);
+  useI18n(); // dựng lại khi đổi ngôn ngữ
+  // Hội thoại lưu theo tài khoản; hội thoại đang mở là lựa chọn riêng của từng thiết bị
+  const [conversations, setConversations] = useSyncedState<ChatConversation[]>(userId, 'conversations', []);
+  const [activeId, setActiveId] = usePersistentState<string | null>(`shopping-ai.u.${userId}.active-conversation`, null);
+  // Đoạn chat đang chờ agent trả lời (khóa chuyển / xóa đoạn chat trong lúc stream)
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const isProcessing = busyId !== null;
 
   const [inputQuery, setInputQuery] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
   const [activeReasoning, setActiveReasoning] = useState<ReasoningStep[]>([]);
-  
-  // Selected citation for side drawer (matching video 01:01 - 01:06)
+  // Sản phẩm đang mở ngăn chính sách nơi bán
+  const [policyProduct, setPolicyProduct] = useState<ProductItem | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<CitationItem | null>(null);
-
-  // Clarification questions state
-  const [activeClarification, setActiveClarification] = useState<ClarificationQuestion | null>(null);
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
-  const [customInputValue, setCustomInputValue] = useState('');
+  const [dismissedClarifications, setDismissedClarifications] = useState<Record<string, boolean>>({});
+
+  const activeConversation = conversations.find(c => c.id === activeId) ?? null;
+  const messages = activeConversation?.messages ?? [];
+  const lastMessage = messages[messages.length - 1];
+  // Câu hỏi làm rõ của lượt cuối (lưu cùng tin nhắn nên vẫn hiện khi mở lại đoạn chat)
+  const activeClarification =
+    !isProcessing && lastMessage?.sender === 'assistant' && lastMessage.clarification && !dismissedClarifications[lastMessage.id]
+      ? lastMessage.clarification
+      : null;
+
+  const createConversation = (title: string): string => {
+    const now = new Date().toISOString();
+    const conv: ChatConversation = { id: newConversationId(), title: makeTitle(title), createdAt: now, updatedAt: now, messages: [] };
+    setConversations(prev => [conv, ...prev].slice(0, MAX_CONVERSATIONS));
+    setActiveId(conv.id);
+    return conv.id;
+  };
+
+  const updateMessages = (convId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) =>
+    setConversations(prev =>
+      prev.map(c => (c.id === convId ? { ...c, messages: updater(c.messages), updatedAt: new Date().toISOString() } : c))
+    );
+
+  const handleCreateConversation = () => {
+    if (isProcessing) return;
+    setActiveId(null);
+    setInputQuery('');
+    setSelectedCitation(null);
+  };
+
+  const handleSelectConversation = (id: string) => {
+    if (isProcessing) return;
+    setActiveId(id);
+    setSelectedCitation(null);
+  };
+
+  const handleDeleteConversation = (id: string) => {
+    if (id === busyId) return;
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (id === activeId) setActiveId(null);
+    // Xóa cả trí nhớ phiên ở backend; nếu backend đang tắt thì chỉ xóa trên trình duyệt
+    deleteConversation(id).catch(() => undefined);
+  };
+  // Trạng thái ẩn/hiện bảng so sánh do người dùng bấm, ghi đè giá trị mặc định của tin nhắn
+  const [tableToggles, setTableToggles] = useState<Record<string, boolean>>({});
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const handledRequestIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, activeReasoning, activeClarification]);
 
-  const promptSuggestions = [
-    'Tìm laptop mỏng nhẹ cho lập trình & chỉnh ảnh dưới 28 triệu',
-    'So sánh tai nghe Sony WH-1000XM5 và Bose QC Ultra',
-    'Kiểm tra rủi ro bảo hành màn hình MacBook M3 khi mua trên sàn TMĐT',
-    'Robot hút bụi lau nhà nào tự giặt giẻ dưới 15 triệu tốt nhất?'
-  ];
+  // Xử lý yêu cầu gửi từ màn khác (Đã lưu, Tổng quan, Lịch sử)
+  useEffect(() => {
+    if (!request || isProcessing || handledRequestIds.current.has(request.id)) return;
+    handledRequestIds.current.add(request.id);
+    onRequestHandled();
 
-  const handleSendQuery = async (queryText?: string) => {
-    const text = queryText || inputQuery;
-    if (!text.trim() || isProcessing) return;
-
-    const userMsg: ChatMessage = {
-      id: `usr-${Date.now()}`,
-      sender: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    if (!queryText) setInputQuery('');
-    setIsProcessing(true);
-
-    // Simulate system reasoning timeline
-    await runReasoningPipeline(text, (steps) => {
-      setActiveReasoning(steps);
-    });
-
-    // Offer interactive clarification card (like in video 01:44)
-    const clarificationCard: ClarificationQuestion = {
-      id: 'clar-1',
-      stepNumber: 1,
-      totalSteps: 4,
-      question: 'Ngân sách tối đa dự kiến của bạn cho đợt mua sắm này là bao nhiêu?',
-      contextHint: 'Để trợ lý lọc cấu hình tối ưu và tránh các mẫu máy bị thiếu RAM/bộ nhớ.',
-      options: [
-        { id: 'opt-1', label: 'Dưới 20 triệu đồng', sublabel: 'Phân khúc văn phòng cơ bản' },
-        { id: 'opt-2', label: '20 - 28 triệu đồng', sublabel: 'Phân khúc cận cao cấp (Khuyên dùng)' },
-        { id: 'opt-3', label: '28 - 35 triệu đồng', sublabel: 'Phân khúc cao cấp & đồ họa chuyên nghiệp' },
-        { id: 'opt-4', label: 'Tự nhập mức ngân sách cụ thể' }
-      ],
-      allowCustomInput: true
-    };
-
-    setActiveClarification(clarificationCard);
-
-    // AI generated response with inline citations
-    const assistantMsg: ChatMessage = {
-      id: `ai-${Date.now()}`,
-      sender: 'assistant',
-      content: `Dựa trên kết quả đối chiếu dữ liệu sàn chính hãng và thông số kiểm thử thực tế [1]:
-
-Đối với tầm giá dưới 28 triệu đồng, lựa chọn tối ưu hàng đầu hiện nay là **Apple MacBook Air 13 inch M3 (16GB RAM / 512GB SSD)** với mức giá sàn ghi nhận **28.490.000 ₫** [1].
-
-**Điểm mạnh nổi bật:**
-- Vi xử lý Apple M3 3nm chạy siêu mát, không quạt tản nhiệt, thời lượng pin thực tế đạt 14-16 giờ liên tục [3].
-- Màn hình Liquid Retina chuẩn màu 100% DCI-P3, độ sáng 500 nits đáp ứng xuất sắc công việc đồ họa & UI/UX [2].
-- Phiên bản 16GB RAM giải quyết triệt để vấn đề tràn bộ nhớ (swap memory) khi mở nhiều tab Figma và trình duyệt.
-
-**Lưu ý rủi ro trước khi chốt đơn:**
-- RAM và SSD bị hàn chết trên bo mạch (Unified Architecture), hoàn toàn không thể nâng cấp thủ công sau này.
-- Chính sách bảo hành: Cần mua từ gian hàng ủy quyền AASP trên Shopee Mall / Tiki Official để đảm bảo quyền lợi đổi mới trong 30 ngày nếu phát hiện lỗi phần cứng nhà sản xuất [2].
-
-Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ lý hoàn thiện hồ sơ so sánh tự động hoặc chuyển sang chế độ soạn thảo dự thảo quyết định mua sắm.`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      citations: SAMPLE_CITATIONS,
-      reasoningSteps: activeReasoning
-    };
-
-    setMessages(prev => [...prev, assistantMsg]);
-    setIsProcessing(false);
-  };
-
-  const handleConfirmClarification = () => {
-    if (!selectedOptionId && !customInputValue) return;
-    
-    // Progress to next step or finish
-    const nextQuestion: ClarificationQuestion = {
-      id: 'clar-2',
-      stepNumber: 2,
-      totalSteps: 4,
-      question: 'Nhu cầu ưu tiên cao nhất của bạn là gì?',
-      contextHint: 'Xác định trọng tâm đánh đổi giữa trọng lượng và hiệu năng tản nhiệt.',
-      options: [
-        { id: 'opt-weight', label: 'Trọng lượng siêu nhẹ (< 1.3kg)', sublabel: 'Thường xuyên di chuyển công tác' },
-        { id: 'opt-ram', label: 'Dung lượng RAM lớn (32GB)', sublabel: 'Lập trình nhiều máy ảo, xử lý dữ liệu nặng' },
-        { id: 'opt-screen', label: 'Màn hình OLED 120Hz chuẩn màu', sublabel: 'Thiết kế đồ họa & giải trí điện ảnh' }
-      ]
-    };
-
-    if (activeClarification?.stepNumber === 1) {
-      setActiveClarification(nextQuestion);
-      setSelectedOptionId(null);
-      setCustomInputValue('');
-    } else {
-      setActiveClarification(null);
-      // Add confirmation message
-      setMessages(prev => [
+    if (request.kind === 'restore') {
+      const convId = createConversation(request.query);
+      updateMessages(convId, prev => [
         ...prev,
         {
-          id: `clar-confirm-${Date.now()}`,
+          id: `restore-${Date.now()}`,
           sender: 'assistant',
-          content: 'Đã nhận đủ thông tin làm rõ! Hệ thống đã tự động đồng bộ sang **Thiết lập dự thảo quyết định mua sắm**. Bạn có thể bấm vào nút dưới đây để xem bảng so sánh song song và hồ sơ chi tiết.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          content: t('Kết quả trước đó cho **"{query}"**: {count} sản phẩm đã được xếp hạng.', { query: request.query, count: request.products.length }),
+          timestamp: nowTime(),
+          products: request.products,
+          query: request.query,
+          showPolicyAction: true
         }
       ]);
+      return;
+    }
+
+    void handleCompareProducts(request.products);
+  }, [request, isProcessing]);
+
+  const handleCompareProducts = async (products: ProductItem[]) => {
+    const question = t('So sánh giúp tôi: {names}', { names: products.map(p => p.name).join('; ') });
+    const convId = createConversation(question);
+    updateMessages(convId, prev => [...prev, { id: `usr-${Date.now()}`, sender: 'user', content: question, timestamp: nowTime() }]);
+    setBusyId(convId);
+    setActiveReasoning([{ id: 'step-compare', label: t(STAGE_LABELS.comparing), status: 'running', detail: t('{count} sản phẩm: {names}', { count: products.length, names: products.map(p => p.brand || p.name).join(', ') }) }]);
+
+    try {
+      const { comparison, summary } = await compareProducts(convId, products);
+      updateMessages(convId, prev => [
+        ...prev,
+        {
+          id: `ai-cmp-${Date.now()}`,
+          sender: 'assistant',
+          // Không có bảng = không so sánh được (VD sản phẩm khác loại): chỉ hiện lời giải thích, không nói là đã so sánh
+          content: comparison
+            ? `${t('Tôi đã so sánh {count} sản phẩm theo giá, cấu hình, bảo hành và chính sách đổi trả.', { count: products.length })}\n\n${summary}`
+            : summary,
+          timestamp: nowTime(),
+          products,
+          comparison,
+          showProductCards: !comparison,
+          comparisonOpen: !!comparison,
+          showPolicyAction: !!comparison
+        }
+      ]);
+    } catch (err) {
+      updateMessages(convId, prev => [...prev, errorMessage(err)]);
+    } finally {
+      setBusyId(null);
+      setActiveReasoning([]);
     }
   };
 
+  const promptSuggestions = [
+    t('Tìm laptop mỏng nhẹ cho lập trình & chỉnh ảnh dưới 28 triệu'),
+    t('Laptop gaming dưới 30 triệu có RTX 4070'),
+    t('So sánh tai nghe Sony WH-1000XM5 và Bose QC Ultra'),
+    t('Robot hút bụi lau nhà tự giặt giẻ dưới 15 triệu')
+  ];
+
+  // displayText: chữ hiện trong bong bóng chat khi khác câu gửi đi (VD nhãn mức ngân sách đã dịch)
+  const handleSendQuery = async (queryText?: string, displayText?: string) => {
+    const text = queryText || inputQuery;
+    if (!text.trim() || isProcessing) return;
+    const shown = displayText || text;
+
+    // Câu hỏi đầu tiên của đoạn chat mới trở thành tên đoạn chat
+    const convId = activeConversation?.id ?? createConversation(shown);
+    updateMessages(convId, prev => [...prev, { id: `usr-${Date.now()}`, sender: 'user', content: shown, timestamp: nowTime() }]);
+    if (!queryText) setInputQuery('');
+    setBusyId(convId);
+    setSelectedOptionId(null);
+
+    // Tin nhắn của agent được dựng dần theo từng sự kiện SSE
+    const draft: ChatMessage = { id: `ai-${Date.now()}`, sender: 'assistant', content: '', timestamp: nowTime(), query: text };
+    const upsert = () => {
+      const snapshot = { ...draft };
+      updateMessages(convId, prev => (prev.some(m => m.id === snapshot.id) ? prev.map(m => (m.id === snapshot.id ? snapshot : m)) : [...prev, snapshot]));
+    };
+    const steps: ReasoningStep[] = [];
+
+    try {
+      await streamChat(convId, text, {
+        onStatus: (stage, message) => {
+          steps.forEach(st => { st.status = 'completed'; });
+          steps.push({ id: `step-${steps.length + 1}`, label: t(STAGE_LABELS[stage] ?? stage), detail: message && t(message), status: 'running' });
+          setActiveReasoning(steps.map(st => ({ ...st })));
+        },
+        onProducts: products => {
+          // Bỏ bản gốc backend để đoạn chat lưu trong localStorage gọn hơn (tool so sánh tự dựng lại khi cần)
+          draft.products = products.map(({ raw, ...rest }) => rest);
+          draft.showPolicyAction = true;
+          upsert();
+        },
+        onComparison: comparison => {
+          draft.comparison = comparison;
+          upsert();
+        },
+        onClarification: question => {
+          draft.clarification = question;
+        },
+        onToken: token => {
+          draft.content += token;
+          upsert();
+        },
+        onSuggestions: suggestions => {
+          draft.suggestions = suggestions;
+        },
+        onDone: info => {
+          draft.notes = info.searchNotes;
+        }
+      });
+      if (!draft.content && !draft.products) {
+        draft.content = t('Tôi chưa có câu trả lời cho yêu cầu này. Bạn thử diễn đạt lại giúp tôi nhé.');
+      }
+      upsert();
+      if (draft.products?.length) onResults(text, draft.products);
+    } catch (err) {
+      // Giữ phần đã nhận được (nếu có), thêm thông báo lỗi
+      updateMessages(convId, prev => [...prev.filter(m => m.id !== draft.id || m.content || m.products), errorMessage(err)]);
+    } finally {
+      setBusyId(null);
+      setActiveReasoning([]);
+    }
+  };
+
+  const handleConfirmClarification = () => {
+    const option = activeClarification?.options.find(o => o.id === selectedOptionId);
+    if (!option) return;
+    setSelectedOptionId(null);
+    void handleSendQuery(option.value, option.label);
+  };
+
+  const lastAssistantId = [...messages].reverse().find(m => m.sender === 'assistant')?.id;
+
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] relative overflow-hidden bg-[#faf9f5]">
-      {/* Main Chat Flow Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Messages Scroll View */}
+    <div className="flex h-[calc(100vh-3.5rem)] relative overflow-hidden bg-canvas">
+      <ConversationList
+        conversations={conversations}
+        activeId={activeId}
+        busyId={busyId}
+        onSelect={handleSelectConversation}
+        onCreate={handleCreateConversation}
+        onDelete={handleDeleteConversation}
+      />
+
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        {/* Màn hình hẹp: chọn đoạn chat bằng menu thả xuống */}
+        <div className="md:hidden flex items-center gap-2 px-4 py-2 bg-white border-b border-stone-200">
+          <select
+            value={activeId ?? ''}
+            onChange={e => (e.target.value ? handleSelectConversation(e.target.value) : handleCreateConversation())}
+            disabled={isProcessing}
+            className="flex-1 min-w-0 text-xs bg-stone-50 border border-stone-200 rounded-lg px-2 py-1.5"
+          >
+            <option value="">{t('Hội thoại mới')}</option>
+            {conversations.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+          </select>
+          <button
+            onClick={handleCreateConversation}
+            disabled={isProcessing}
+            className="shrink-0 p-2 rounded-lg bg-stone-900 text-amber-50 disabled:bg-stone-300"
+            title={t('Hội thoại mới')}
+          >
+            <MessageSquarePlus className="w-4 h-4" />
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-4xl mx-auto w-full">
-          {/* Header indicator inside chat (like video: "Bắt đầu bằng một câu hỏi cụ thể...") */}
-          {messages.length === 1 && (
+          {messages.length === 0 && (
             <div className="bg-white p-6 rounded-2xl border border-stone-200/90 shadow-sm text-center space-y-4">
               <div className="w-12 h-12 mx-auto rounded-xl bg-amber-50 text-amber-900 flex items-center justify-center">
                 <Sparkles className="w-6 h-6 text-amber-800" />
               </div>
               <div>
-                <h2 className="text-base font-bold text-stone-900">
-                  Tra cứu có kiểm chứng & Căn cứ giá sàn
-                </h2>
+                <h2 className="text-base font-bold text-stone-900">{t('Mô tả nhu cầu mua sắm của bạn')}</h2>
                 <p className="text-xs text-stone-600 mt-1 max-w-md mx-auto">
-                  Trợ lý AI hỗ trợ bạn tra cứu thông số kỹ thuật, đối chiếu giá sàn lịch sử từ các gian hàng chính hãng (Shopee Mall, Tiki Official, AASP), rà soát rủi ro bảo hành và lọc đánh giá seeding.
+                  {t('Trợ lý sẽ phân tích yêu cầu, thu thập dữ liệu từ các sàn thương mại điện tử, lọc và xếp hạng sản phẩm phù hợp.')}
                 </p>
               </div>
 
-              {/* 4 Example Prompts Grid (matching video 00:19) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left pt-2">
                 {promptSuggestions.map((prompt, idx) => (
                   <button
@@ -197,17 +485,26 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
                   </button>
                 ))}
               </div>
+
+              <button
+                onClick={() => onOpenPolicy()}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 hover:text-amber-950"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{t('Hoặc tra cứu chính sách bảo hành, đổi trả giữa các sàn')}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
-          {/* Chat Messages */}
-          {messages.map((msg) => (
-            <div 
-              key={msg.id}
-              className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-            >
-              <div 
-                className={`max-w-2xl text-xs sm:text-sm leading-relaxed p-5 rounded-2xl shadow-sm ${
+          {[{ ...WELCOME_MESSAGE, content: t(WELCOME_MESSAGE.content), timestamp: t(WELCOME_MESSAGE.timestamp) }, ...messages].map((msg) => {
+            const hasProducts = !!msg.products && msg.products.length > 0;
+            const tableOpen = tableToggles[msg.id] ?? !!msg.comparisonOpen;
+            const citations = msg.citations ?? (hasProducts && msg.sender === 'assistant' ? buildCitations(msg.products!) : []);
+            return (
+            <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+              <div
+                className={`${hasProducts ? 'w-full max-w-3xl' : 'max-w-2xl w-fit'} min-w-0 text-xs sm:text-sm leading-relaxed p-5 rounded-2xl shadow-sm ${
                   msg.sender === 'user'
                     ? 'bg-stone-900 text-stone-100 rounded-tr-none'
                     : 'bg-white text-stone-800 border border-stone-200/90 rounded-tl-none space-y-3'
@@ -217,95 +514,149 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
                   <div className="flex items-center justify-between pb-2 border-b border-stone-100 text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
                     <span className="flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                      Phản hồi của trợ lý mua sắm
+                      {t('Trợ lý mua sắm')}
                     </span>
                     <span className="text-stone-600 font-mono">{msg.timestamp}</span>
                   </div>
                 )}
 
-                {/* Content with rich markdown styling */}
-                <div className="whitespace-pre-line">
-                  {msg.content}
-                </div>
+                {msg.sender === 'assistant' ? (
+                  <div className={msg.isError ? 'flex gap-2 text-red-800' : ''}>
+                    {msg.isError && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
+                    <Markdown text={msg.content} />
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-line">{msg.content}</div>
+                )}
 
-                {/* Inline Citations Buttons */}
-                {msg.citations && msg.citations.length > 0 && (
+                {msg.notes && msg.notes.length > 0 && (
+                  <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-stone-700 space-y-1">
+                    <div className="flex items-center gap-1 font-semibold text-amber-900">
+                      <AlertTriangle className="w-3.5 h-3.5" /> {t('Lưu ý về dữ liệu')}
+                    </div>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {msg.notes.map((n, i) => <li key={i} className="whitespace-pre-line">{t(n)}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {hasProducts && msg.showProductCards !== false && (
+                  <div className="pt-1 space-y-2">
+                    <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">
+                      {t('Sản phẩm đề xuất ({count})', { count: msg.products!.length })}
+                    </span>
+                    {msg.products!.map((p, i) => (
+                      <ProductCard
+                        key={p.id}
+                        product={p}
+                        rank={i + 1}
+                        isSaved={savedIds.includes(p.id)}
+                        onToggleSave={() => onToggleSave(p, msg.query ?? '')}
+                        isTracked={trackedIds.includes(p.id)}
+                        onTrackPrice={() => onTrackPrice(p)}
+                        onOpenPolicy={() => setPolicyProduct(p)}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {hasProducts && msg.products!.length > 1 && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setTableToggles(prev => ({ ...prev, [msg.id]: !tableOpen }))}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-stone-700 hover:text-stone-950"
+                    >
+                      <Table2 className="w-3.5 h-3.5" />
+                      <span>{tableOpen ? t('Ẩn bảng so sánh') : t('Xem bảng so sánh chi tiết')}</span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${tableOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {tableOpen && (
+                      <ComparisonTable
+                        products={msg.products!}
+                        comparison={msg.comparison}
+                        savedIds={savedIds}
+                        onToggleSave={p => onToggleSave(p, msg.query ?? '')}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {citations.length > 0 && (
                   <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-medium text-stone-500 flex items-center gap-1">
                       <BookOpen className="w-3.5 h-3.5 text-stone-500" />
-                      Căn cứ trích dẫn ({msg.citations.length}):
+                      {t('Nguồn ({count}):', { count: citations.length })}
                     </span>
-                    {msg.citations.map((cite) => (
+                    {citations.map((cite) => (
                       <button
                         key={cite.id}
                         onClick={() => setSelectedCitation(cite)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-stone-700 bg-stone-100 hover:bg-amber-100 hover:text-amber-900 rounded-md border border-stone-200 transition-colors"
                       >
                         <span className="font-mono text-amber-800 font-bold">[{cite.index}]</span>
-                        <span>{cite.sourceName.slice(0, 24)}...</span>
+                        <span>{getPlatformName(cite.platformId)}</span>
                       </button>
                     ))}
                   </div>
                 )}
-
-                {/* Feedback Row (like video: "Hữu ích / Thiếu căn cứ / Chưa chính xác") */}
-                {msg.sender === 'assistant' && msg.id !== 'msg-welcome' && (
-                  <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
-                    <span className="text-[11px]">Câu trả lời này có hữu ích không?</span>
-                    <div className="flex items-center gap-1.5">
-                      <button className="px-2 py-1 text-[11px] font-medium text-stone-700 hover:bg-stone-100 rounded border border-stone-200 flex items-center gap-1">
-                        <ThumbsUp className="w-3 h-3 text-emerald-600" />
-                        <span>Hữu ích</span>
-                      </button>
-                      <button className="px-2 py-1 text-[11px] font-medium text-stone-700 hover:bg-stone-100 rounded border border-stone-200 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 text-amber-600" />
-                        <span>Thiếu căn cứ</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
 
-              {/* Action button to switch to Dossier view if AI suggested it */}
-              {msg.id.startsWith('clar-confirm') && (
+              {msg.id === lastAssistantId && !isProcessing && !activeClarification && msg.suggestions && msg.suggestions.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {msg.suggestions.map(sug => (
+                    <button
+                      key={sug}
+                      onClick={() => handleSendQuery(sug)}
+                      className="px-3 py-1.5 bg-white border border-stone-200 rounded-full text-[11px] text-stone-700 hover:border-stone-400 hover:text-stone-950 transition-colors"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {msg.showPolicyAction && (
                 <button
-                  onClick={onOpenDossier}
-                  className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-stone-900 text-amber-50 rounded-xl text-xs font-semibold hover:bg-stone-800 shadow-sm transition-all"
+                  onClick={() => onOpenPolicy(msg.products?.length ? {
+                    query: msg.query ?? '',
+                    productPlatformIds: [...new Set(msg.products.map(p => p.platformId))],
+                  } : undefined)}
+                  className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-white border border-stone-300 text-stone-800 rounded-xl text-xs font-semibold hover:bg-stone-50 shadow-sm transition-all"
                 >
-                  <FileText className="w-4 h-4" />
-                  <span>Mở Hồ sơ so sánh song song & Dự thảo</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <span>{t('Tra cứu chính sách bảo hành & đổi trả các sàn')}</span>
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
 
-          {/* Live System Reasoning Timeline (matching video 00:38 - 00:46) */}
-          {isProcessing && (
+          {isProcessing && activeReasoning.length === 0 && (
+            <div className="inline-flex items-center gap-2 px-4 py-2.5 bg-white rounded-2xl border border-stone-200/90 shadow-sm text-xs text-stone-600 animate-fadeIn">
+              <RotateCw className="w-3.5 h-3.5 text-amber-700 animate-spin" />
+              <span>{t('Đang trả lời...')}</span>
+            </div>
+          )}
+
+          {isProcessing && activeReasoning.length > 0 && (
             <div className="bg-white p-5 rounded-2xl border border-stone-200/90 shadow-sm space-y-3 animate-fadeIn">
               <div className="flex items-center gap-2 text-xs font-bold text-stone-800">
                 <RotateCw className="w-4 h-4 text-amber-700 animate-spin" />
-                <span>Tiến trình hệ thống đang xử lý</span>
+                <span>{t('Tiến trình của agent')}</span>
               </div>
               <div className="space-y-2 pt-1">
                 {activeReasoning.map((step) => (
                   <div key={step.id} className="flex items-start gap-2.5 text-xs">
-                    {step.status === 'completed' && (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    )}
+                    {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />}
                     {step.status === 'running' && (
                       <div className="w-4 h-4 rounded-full border-2 border-amber-600 border-t-transparent animate-spin shrink-0 mt-0.5" />
                     )}
-                    {step.status === 'pending' && (
-                      <div className="w-3 h-3 rounded-full bg-stone-200 shrink-0 mt-1 mx-0.5" />
-                    )}
+                    {step.status === 'pending' && <div className="w-3 h-3 rounded-full bg-stone-200 shrink-0 mt-1 mx-0.5" />}
                     <div>
-                      <span className={`${step.status === 'completed' ? 'text-stone-800 font-medium' : step.status === 'running' ? 'text-amber-900 font-semibold' : 'text-stone-400'}`}>
+                      <span className={step.status === 'completed' ? 'text-stone-800 font-medium' : step.status === 'running' ? 'text-amber-900 font-semibold' : 'text-stone-400'}>
                         {step.label}
                       </span>
-                      {step.detail && (
-                        <p className="text-[11px] text-stone-500 mt-0.5">{step.detail}</p>
-                      )}
+                      {step.detail && <p className="text-[11px] text-stone-500 mt-0.5">{step.detail}</p>}
                     </div>
                   </div>
                 ))}
@@ -313,76 +664,58 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
             </div>
           )}
 
-          {/* Interactive Clarification Card (matching video 01:44 - 02:08) */}
           {activeClarification && (
-            <div className="bg-[#fcfbf9] p-5 rounded-2xl border-2 border-amber-200/80 shadow-md space-y-4 animate-slideUp">
+            <div className="bg-panel p-5 rounded-2xl border-2 border-amber-200/80 shadow-md space-y-4 animate-slideUp">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-md bg-amber-100 text-amber-900 text-xs font-bold flex items-center justify-center">
-                    {activeClarification.stepNumber}
-                  </span>
-                  <span className="text-xs font-bold text-stone-900">
-                    Trợ lý làm rõ yêu cầu mua sắm
-                  </span>
-                </div>
-                <span className="text-xs font-mono font-semibold text-stone-500">
-                  {activeClarification.stepNumber}/{activeClarification.totalSteps}
-                </span>
+                <span className="text-xs font-bold text-stone-900">{t('Làm rõ nhu cầu để xếp hạng chính xác hơn')}</span>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-stone-900">
-                  {activeClarification.question}
-                </h3>
+                <h3 className="text-sm font-semibold text-stone-900">{activeClarification.question}</h3>
                 {activeClarification.contextHint && (
-                  <p className="text-xs text-stone-500 mt-1">
-                    {activeClarification.contextHint}
-                  </p>
+                  <p className="text-xs text-stone-500 mt-1">{activeClarification.contextHint}</p>
                 )}
               </div>
 
-              {/* Options selection */}
               <div className="space-y-2">
                 {activeClarification.options.map((opt) => (
                   <label
                     key={opt.id}
-                    onClick={() => setSelectedOptionId(opt.id)}
                     className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
                       selectedOptionId === opt.id
                         ? 'bg-white border-stone-800 shadow-sm text-stone-900 font-medium'
                         : 'bg-white/80 border-stone-200 text-stone-700 hover:bg-white hover:border-stone-300'
                     }`}
                   >
-                    <input 
-                      type="radio" 
-                      name="clarification" 
+                    <input
+                      type="radio"
+                      name="clarification"
                       checked={selectedOptionId === opt.id}
                       onChange={() => setSelectedOptionId(opt.id)}
                       className="mt-0.5 text-stone-900 focus:ring-stone-900"
                     />
                     <div className="flex-1">
                       <div className="font-semibold text-stone-900">{opt.label}</div>
-                      {opt.sublabel && (
-                        <div className="text-[11px] text-stone-500 mt-0.5">{opt.sublabel}</div>
-                      )}
+                      {opt.sublabel && <div className="text-[11px] text-stone-500 mt-0.5">{opt.sublabel}</div>}
                     </div>
                   </label>
                 ))}
               </div>
 
-              {/* Action Buttons */}
+              {activeClarification.allowCustomInput && (
+                <p className="text-[11px] text-stone-500">{t('Hoặc gõ câu trả lời của bạn vào ô chat bên dưới (VD: "tầm 18 triệu, dùng để học lập trình").')}</p>
+              )}
+
               <div className="flex items-center justify-between pt-2 border-t border-amber-100">
-                <button
-                  onClick={() => setActiveClarification(null)}
-                  className="text-xs font-medium text-stone-500 hover:text-stone-800"
-                >
-                  Bỏ qua câu này
+                <button onClick={() => lastMessage && setDismissedClarifications(prev => ({ ...prev, [lastMessage.id]: true }))} className="text-xs font-medium text-stone-500 hover:text-stone-800">
+                  {t('Bỏ qua')}
                 </button>
                 <button
                   onClick={handleConfirmClarification}
-                  className="px-4 py-2 bg-stone-900 text-amber-50 text-xs font-semibold rounded-lg hover:bg-stone-800 transition-colors"
+                  disabled={!selectedOptionId}
+                  className="px-4 py-2 bg-stone-900 text-amber-50 text-xs font-semibold rounded-lg hover:bg-stone-800 transition-colors disabled:bg-stone-300"
                 >
-                  Xác nhận lựa chọn
+                  {t('Xác nhận')}
                 </button>
               </div>
             </div>
@@ -391,12 +724,11 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input Bar with Disclaimer (matching video 00:26) */}
         <div className="p-4 bg-white border-t border-stone-200/90 shrink-0">
           <div className="max-w-4xl mx-auto space-y-2">
             <div className="text-[11px] text-stone-500 flex items-center gap-1.5 justify-center">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-700" />
-              <span>AI có thể sai. Mọi kết quả mua sắm cần được người dùng kiểm tra lại thông số và điều kiện bảo hành trước khi thanh toán.</span>
+              <span>{t('AI có thể sai. Hãy kiểm tra lại thông số, giá và điều kiện bảo hành trước khi thanh toán.')}</span>
             </div>
 
             <form
@@ -404,13 +736,13 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
                 e.preventDefault();
                 handleSendQuery();
               }}
-              className="flex items-center gap-2 bg-[#f8f7f4] border border-stone-300 rounded-xl p-1.5 focus-within:border-stone-800 focus-within:ring-1 focus-within:ring-stone-800 transition-all"
+              className="flex items-center gap-2 bg-inset border border-stone-300 rounded-xl p-1.5 focus-within:border-stone-800 focus-within:ring-1 focus-within:ring-stone-800 transition-all"
             >
               <input
                 type="text"
                 value={inputQuery}
                 onChange={(e) => setInputQuery(e.target.value)}
-                placeholder="Nhập câu hỏi mua sắm, tên sản phẩm hoặc dán link Shopee, Tiki..."
+                placeholder={t('VD: Laptop gaming dưới 30 triệu, RTX 4070, chơi game nặng...')}
                 className="flex-1 px-3 py-2 text-xs sm:text-sm bg-transparent border-none outline-none text-stone-900 placeholder:text-stone-400"
                 disabled={isProcessing}
               />
@@ -422,7 +754,7 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
                     ? 'bg-stone-900 text-amber-50 hover:bg-stone-800 shadow-sm'
                     : 'bg-stone-200 text-stone-400 cursor-not-allowed'
                 }`}
-                title="Gửi câu hỏi"
+                title={t('Gửi')}
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -431,18 +763,16 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
         </div>
       </div>
 
-      {/* Evidence / Citation Side Drawer (matching video 01:01 - 01:06) */}
       {selectedCitation && (
         <aside className="w-96 shrink-0 h-full bg-white border-l border-stone-200 shadow-lg flex flex-col z-30 animate-slideLeft">
           <div className="p-4 border-b border-stone-200 flex items-center justify-between bg-stone-50">
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-amber-800" />
-              <h3 className="text-xs font-bold text-stone-900 uppercase tracking-wider">
-                Chi tiết nguồn trích dẫn
-              </h3>
+              <h3 className="text-xs font-bold text-stone-900 uppercase tracking-wider">{t('Chi tiết nguồn')}</h3>
             </div>
             <button
               onClick={() => setSelectedCitation(null)}
+              aria-label={t('Đóng')}
               className="w-7 h-7 rounded-lg hover:bg-stone-200 flex items-center justify-center text-stone-500"
             >
               <X className="w-4 h-4" />
@@ -451,69 +781,59 @@ Bạn có thể trả lời các câu hỏi làm rõ bên dưới để trợ l�
 
           <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs leading-relaxed">
             <div>
-              <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
-                Nguồn [{selectedCitation.index}]
+              <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">{t('Nguồn [{index}]', { index: selectedCitation.index })}</span>
+              <h4 className="text-sm font-bold text-stone-900 mt-1">{selectedCitation.sourceName}</h4>
+              <span className="inline-block mt-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-medium">
+                {getPlatformName(selectedCitation.platformId)}
               </span>
-              <h4 className="text-sm font-bold text-stone-900 mt-1">
-                {selectedCitation.sourceName}
-              </h4>
-              <div className="flex items-center gap-2 mt-1 text-[11px] text-stone-500">
-                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium">
-                  {selectedCitation.sourceType}
-                </span>
-                <span>·</span>
-                <span>{selectedCitation.reliabilityStatus}</span>
-              </div>
             </div>
 
             {selectedCitation.price && (
               <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1">
-                <span className="text-[11px] text-stone-600 block">Giá sàn ghi nhận:</span>
-                <div className="text-lg font-bold text-amber-950 font-mono">
-                  {selectedCitation.price}
-                </div>
+                <span className="text-[11px] text-stone-600 block">{t('Giá ghi nhận:')}</span>
+                <div className="text-lg font-bold text-amber-950 font-mono">{selectedCitation.price}</div>
                 {selectedCitation.officialPrice && (
-                  <span className="text-[11px] text-stone-500 line-through block">
-                    Giá niêm yết: {selectedCitation.officialPrice}
-                  </span>
+                  <span className="text-[11px] text-stone-500 line-through block">{t('Giá niêm yết: {price}', { price: selectedCitation.officialPrice })}</span>
                 )}
               </div>
             )}
 
             <div className="space-y-2">
-              <span className="text-xs font-semibold text-stone-800 uppercase tracking-wider">
-                Đoạn trích dẫn nguyên văn:
-              </span>
-              <div className="p-3.5 bg-[#fbf9f4] border border-stone-200 rounded-xl text-stone-800 italic leading-relaxed">
+              <span className="text-xs font-semibold text-stone-800">{t('Nội dung thu thập được:')}</span>
+              <div className="p-3.5 bg-panel border border-stone-200 rounded-xl text-stone-800 italic">
                 "{selectedCitation.excerpt}"
               </div>
             </div>
 
-            <div className="pt-3 border-t border-stone-200 space-y-2 text-[11px] text-stone-500">
-              <div className="flex items-center justify-between">
-                <span>Thời điểm kiểm tra:</span>
-                <span className="font-mono text-stone-700">{selectedCitation.verifiedDate}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Hiệu lực giá:</span>
-                <span className="text-emerald-700 font-medium">Đang áp dụng</span>
-              </div>
+            <div className="pt-3 border-t border-stone-200 flex items-center justify-between text-[11px] text-stone-500">
+              <span>{t('Thời điểm thu thập:')}</span>
+              <span className="font-mono text-stone-700">{selectedCitation.verifiedDate}</span>
             </div>
 
-            <div className="pt-4">
-              <button
-                onClick={() => {
-                  setSelectedCitation(null);
-                  onOpenDossier();
-                }}
+            {selectedCitation.url && (
+              <a
+                href={selectedCitation.url}
+                target="_blank"
+                rel="noreferrer"
                 className="w-full py-2.5 bg-stone-900 text-amber-50 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors flex items-center justify-center gap-1.5"
               >
-                <span>Đưa căn cứ này vào Dự thảo so sánh</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                <span>{t('Mở trang gốc')}</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
           </div>
         </aside>
+      )}
+
+      {policyProduct && (
+        <PolicyDrawer
+          product={policyProduct}
+          onClose={() => setPolicyProduct(null)}
+          onOpenFull={request => {
+            setPolicyProduct(null);
+            onOpenPolicy(request);
+          }}
+        />
       )}
     </div>
   );

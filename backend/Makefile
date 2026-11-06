@@ -11,7 +11,7 @@ run:
 
 # Thu thập hàng loạt dữ liệu các mặt hàng HOT vào SQLite (Phương án 1 CLI)
 crawl:
-	python scripts/crawl_hot.py
+	python scripts/catalog/crawl_hot.py
 
 # Cài đặt toàn bộ thư viện cần thiết
 install:

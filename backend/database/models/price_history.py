@@ -13,5 +13,4 @@ class PriceHistoryModel(Base):
     discount_percent = Column(Integer, default=0)
     recorded_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-    # Quan hệ ngược về sản phẩm
     product = relationship("ProductModel", back_populates="price_history")

@@ -15,7 +15,10 @@ async def test_orchestrator_and_advisor_flow():
     assert result.intent == "search_products"
     assert len(result.found_products) > 0
     assert result.recommended_product is not None
-    assert "ShopAI Copilot" in result.final_response
+    # Câu trả lời đi thẳng vào nội dung (không chào / tự giới thiệu), có nhắc sản phẩm được đề xuất
+    assert result.final_response.strip()
+    top_words = [w for w in result.recommended_product.name.split() if len(w) > 2][:3]
+    assert any(w.lower() in result.final_response.lower() for w in top_words)
 
 @pytest.mark.anyio
 async def test_link_parser_intent():
@@ -28,5 +31,5 @@ async def test_link_parser_intent():
     result = await workflow.execute(state)
     
     assert result.intent == "parse_link"
-    assert len(result.found_products) == 1
-    assert result.found_products[0].platform == "shopee"
+    assert result.found_products == []
+    assert "chưa hỗ trợ đọc link Shopee" in result.final_response

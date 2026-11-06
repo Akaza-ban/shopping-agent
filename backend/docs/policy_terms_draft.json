@@ -1,0 +1,124 @@
+[
+  {
+    "platform_id": "cellphones",
+    "document_id": 9,
+    "source_url": "https://cellphones.com.vn/quy-che-hoat-dong-ung-dung-cellphones/chinh-sach-doi-tra",
+    "fetched_at": "2026-11-04",
+    "return_window_days": 30,
+    "free_return": false,
+    "return_shipping_fee": "Khách tự mang đến VNPost/Viettel; CellphoneS tạo gói cước thu hồi tại nội thành Hà Nội hoặc TP.HCM",
+    "refund_time": "Trả máy trong 30 ngày bị trừ 20% (máy mới), 15% (máy cũ) với điện thoại, máy tính bảng, Macbook",
+    "defect_exchange": "Đổi máy mới trong 30 ngày với điện thoại, máy tính bảng, Macbook, laptop",
+    "warranty_handling": "Ngoài thời gian đổi trả, sản phẩm được bảo hành theo chính sách",
+    "return_conditions": [
+      "Máy như mới: không xước xát, không dán decal, hình trang trí",
+      "Hộp như mới, không móp méo, rách, vỡ; Serial/IMEI trên hộp trùng với thân máy",
+      "Máy đã đăng xuất khỏi tất cả tài khoản như iCloud, Google Account, Mi Account"
+    ],
+    "exceptions": [
+      "Trả hàng không do lỗi nhà sản xuất: CellphoneS chỉ chịu cước với sản phẩm lỗi nhà sản xuất",
+      "Laptop: trong thời gian tiêu chuẩn trừ 20% với máy mới, không áp dụng máy cũ",
+      "Phụ kiện < 1 triệu: đổi mới 1 năm, máy cũ 30 ngày",
+      "Đơn hàng công ty thiếu chứng từ bị thu 8% hoặc 10% theo thuế suất"
+    ],
+    "evidence": [
+      "Điện thoại/ Máy tính bảng/ Macbook: 30 ngày",
+      "Trong thời gian tiêu chuẩn: 20% với máy mới",
+      "CellphoneS chỉ chịu cước đối với các sản phẩm nằm trong điều kiện đổi hoặc trả lại do lỗi của nhà sản xuất.",
+      "Ngoài thời gian trên sản phẩm được bảo hành theo chính sách."
+    ],
+    "unsupported_numbers": []
+  },
+  {
+    "platform_id": "dmx",
+    "document_id": 7,
+    "source_url": "https://www.dienmayxanh.com/chinh-sach-bao-hanh-san-pham",
+    "fetched_at": "2026-11-04",
+    "return_window_days": 30,
+    "free_return": false,
+    "return_shipping_fee": "Không có thông tin phí gửi trả hàng",
+    "refund_time": "Tháng đầu phí 20% giá trị hóa đơn; tháng 2-12 phí 10%/tháng",
+    "defect_exchange": "Hư gì đổi nấy: tháng đầu miễn phí, tháng 2-12 phí 10% giá trị hóa đơn/tháng",
+    "warranty_handling": "Điện Máy Xanh tiếp nhận bảo hành, cần xác nhận mã OTP",
+    "return_conditions": [
+      "Sản phẩm giữ nguyên 100% hình dạng ban đầu, đủ điều kiện bảo hành hãng",
+      "Thân máy không trầy xước màn hình với điện thoại, tablet, laptop",
+      "Chỉ dùng cho mục đích cá nhân, không dùng cho mục đích thương mại"
+    ],
+    "exceptions": [
+      "Trả hàng không lỗi vẫn mất phí 20% tháng đầu, 10%/tháng từ tháng 2-12",
+      "Nhóm gia dụng không điện, phụ kiện không điện không áp dụng bảo hành đổi trả",
+      "Hàng trưng bày và sản phẩm đã sử dụng có chính sách riêng",
+      "Mất hộp thu phí 2% giá trị hóa đơn với điện thoại, tablet, laptop"
+    ],
+    "evidence": [
+      "Tháng đầu tiên kể từ ngày mua: phí 20% giá trị hóa đơn. Tháng thứ 2 đến tháng thứ 12: phí 10% giá trị hóa đơn/tháng.",
+      "Tháng đầu tiên kể từ ngày mua: miễn phí. Tháng thứ 2 đến tháng thứ 12: phí 10% giá trị hóa đơn/tháng.",
+      "Sản phẩm đổi trả phải giữ nguyên 100% hình dạng ban đầu và đủ điều kiện bảo hành của hãng.",
+      "Điện Máy XANH chỉ tiếp nhận đổi trả hoặc bảo hành cho các sản phẩm thuộc nhóm hàng điện gia dụng... khi Quý khách xác nhận đúng mã OTP."
+    ],
+    "unsupported_numbers": []
+  },
+  {
+    "platform_id": "fpt-shop",
+    "document_id": 8,
+    "source_url": "https://fptshop.com.vn/ho-tro/chinh-sach-doi-san-pham",
+    "fetched_at": "2026-11-04",
+    "return_window_days": 30,
+    "free_return": false,
+    "return_shipping_fee": "Mang sản phẩm và hóa đơn đến cửa hàng FPT Shop; phí khấu hao và phụ phí do cửa hàng thông báo",
+    "refund_time": "Hoàn tiền theo phương thức quy định tại Chính sách thanh toán",
+    "defect_exchange": "Trong 0-30 ngày: 1 đổi 1 sản phẩm chính cùng model, màu, dung lượng; hết hàng đổi sản phẩm tương đương hoặc cao hơn",
+    "warranty_handling": "FPT Shop tiếp nhận tại cửa hàng, gửi đến trung tâm bảo hành hãng hoặc đối tác ủy quyền",
+    "return_conditions": [
+      "Sản phẩm chưa sử dụng còn nguyên 100% hình dạng ban đầu hoặc đã sử dụng nhưng màn hình không trầy xước",
+      "Đủ điều kiện bảo hành theo chính sách hãng, không có bất thường chức năng và ngoại quan",
+      "Máy đã đăng xuất khỏi tất cả tài khoản như iCloud, Google Account, Mi Account"
+    ],
+    "exceptions": [
+      "Trả hàng theo nhu cầu bị khấu hao 30% tháng đầu, mỗi tháng tiếp theo thêm 5%",
+      "Từ ngày 31-365 chỉ gửi bảo hành hãng hoặc đổi/trả theo nhu cầu có tính phí",
+      "Sản phẩm có bảo hành hãng trên 365 ngày: từ ngày 366 không áp dụng đổi trả, chỉ gửi bảo hành",
+      "Phụ kiện kèm máy không áp dụng đổi trả, chỉ bảo hành hãng nếu có"
+    ],
+    "evidence": [
+      "Sản phẩm lỗi nhà sản xuất | 0 – 30 ngày | 1 ĐỔI 1 sản phẩm chính (cùng model, cùng màu, cùng dung lượng)",
+      "Khách hàng muốn trả sản phẩm: FPT Shop sẽ kiểm tra tình trạng máy và thông báo đến KH về giá trị thu lại sản phẩm theo quy định.",
+      "30% trong tháng đầu tiên, mỗi tháng tiếp theo tính thêm 5%/Tháng",
+      "Trường hợp sản phẩm có hạn bảo hành hãng trên 365 ngày, từ ngày thứ 366 FPT Shop hỗ trợ gửi máy đi bảo hành và không áp dụng đổi trả theo nhu cầu"
+    ],
+    "unsupported_numbers": []
+  },
+  {
+    "platform_id": "tgdd",
+    "document_id": 6,
+    "source_url": "https://www.thegioididong.com/chinh-sach-bao-hanh-san-pham",
+    "fetched_at": "2026-11-04",
+    "return_window_days": 30,
+    "free_return": false,
+    "return_shipping_fee": "Không có thông tin phí gửi trả hàng",
+    "refund_time": "Tháng đầu phí 20% giá trị hóa đơn; tháng 2-12 phí 10% giá trị hóa đơn/tháng",
+    "defect_exchange": "Hư gì đổi nấy: tháng đầu miễn phí, tháng 2-12 phí 10% giá trị hóa đơn/tháng",
+    "warranty_handling": "TGDĐ tiếp nhận bảo hành tại cửa hàng; bảo hành cam kết trong 12 tháng",
+    "return_conditions": [
+      "Sản phẩm giữ nguyên 100% hình dạng ban đầu và đủ điều kiện bảo hành của hãng",
+      "Thân máy, màn hình không trầy xước (áp dụng cho Điện thoại, Tablet, Laptop, màn hình máy tính, máy tính để bàn)",
+      "Sản phẩm chỉ dùng cho mục đích sử dụng cá nhân, không áp dụng cho mục đích thương mại"
+    ],
+    "exceptions": [
+      "Trả hàng không lỗi vẫn mất phí 20% tháng đầu, 10%/tháng từ tháng 2-12",
+      "Nhóm phụ kiện không điện, sản phẩm khuyến mãi, túi giấy không áp dụng bảo hành và đổi trả tại TGDĐ",
+      "Nhóm sản phẩm trưng bày và đã sử dụng: tháng đầu lỗi kỹ thuật bảo hành hoặc hoàn tiền phí 10%, từ tháng 2 không đổi trả",
+      "Nhóm máy in, bộ lưu điện: 1 đổi 1 trong tháng đầu nếu lỗi kỹ thuật, từ tháng 2 không đổi/trả"
+    ],
+    "evidence": [
+      "Tháng đầu tiên kể từ ngày mua: phí 20% giá trị hóa đơn. Tháng thứ 2 đến tháng thứ 12: phí 10% giá trị hóa đơn/tháng.",
+      "Tháng đầu tiên kể từ ngày mua: miễn phí. Tháng thứ 2 đến tháng thứ 12: phí 10% giá trị hóa đơn/tháng.",
+      "BẢO HÀNH CÓ CAM KẾT TRONG 12 THÁNG. Chỉ áp dụng cho sản phẩm chính, KHÔNG áp dụng cho phụ kiện đi kèm sản phẩm chính.",
+      "Nhóm PHỤ KIỆN KHÔNG ĐIỆN, SẢN PHẨM KHUYẾN MÃI, TÚI GIẤY - Không áp dụng bảo hành và đổi trả tại TGDĐ."
+    ],
+    "unsupported_numbers": [
+      "365"
+    ]
+  }
+]

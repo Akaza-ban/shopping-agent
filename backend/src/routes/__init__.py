@@ -3,6 +3,8 @@ from .products import router as products_router
 from .link_parser import router as link_parser_router
 from .alerts import router as alerts_router
 from .crawler import router as crawler_router
+from .auth import router as auth_router
+from .policies import router as policies_router
 
-__all__ = ["chat_router", "products_router", "link_parser_router", "alerts_router", "crawler_router"]
+__all__ = ["chat_router", "products_router", "link_parser_router", "alerts_router", "crawler_router", "auth_router", "policies_router"]
 
