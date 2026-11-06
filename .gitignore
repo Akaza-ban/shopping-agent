@@ -1,0 +1,23 @@
+# Bí mật & dữ liệu cục bộ (backend/.gitignore và frontend/.gitignore áp thêm quy tắc riêng)
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.sqlite3
+backend/chroma_db/
+
+# Môi trường & bản build
+.venv/
+venv/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.log
+
+# Editor / hệ điều hành
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
