@@ -1,61 +1,27 @@
+"""Điểm vào của API: tạo app FastAPI, gắn middleware, xử lý lỗi, các router và vòng đời khởi động / tắt."""
 import sys
 import asyncio
 
 if sys.platform == "win32":
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    except Exception:
+    except AttributeError:  # bản Python không còn WindowsProactorEventLoopPolicy
         pass
 
-from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from src.config import settings
-from src.routes import chat_router, products_router, link_parser_router, alerts_router, crawler_router, auth_router, policies_router
-from src.auth import require_user
-from database.connection import init_db, close_db
-from services.catalog.batch_crawler import batch_crawler_service
-from services.pricing.watcher import price_watcher_service
-from services.policy.service import ensure_seeded as seed_policies
-from services.catalog.category_resolver import category_resolver
-from services.pricing.category_floors import category_floors
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Khởi tạo CSDL SQLite và các bảng tự động khi khởi động
-    await init_db()
-    await category_resolver.load()
-    await category_floors.refresh(force=True)
-    await seed_policies()
+from shared.config import settings
+from shared.logging_config import setup_logging
+from src.dependencies.auth import require_user
+from src.errors import register_error_handlers
+from src.lifespan import lifespan
+from src.middleware import setup_middleware
+from src.routes import (
+    alerts_router, auth_router, chat_router, crawler_router, feedback_router, link_parser_router, policies_router,
+    products_router,
+)
 
-    async def _startup_warmup():
-        try:
-            # Chờ 1 giây để server FastAPI sẵn sàng lắng nghe request
-            await asyncio.sleep(1.0)
-            if await batch_crawler_service.should_warmup():
-                print("[Startup Warm-up] Phat hien CSDL can lam am, khoi dong thu thap tu dong cac mat hang HOT...")
-                await batch_crawler_service.run_batch_crawl(limit_per_query=3, force_refresh=True)
-                print("[Startup Warm-up] Da hoan tat lam am CSDL voi du lieu thuc!")
-            else:
-                print("[Startup Warm-up] Du lieu trong CSDL van con moi, bo qua thu thap nen.")
-        except Exception as e:
-            print(f"[Startup Warm-up] Loi tien trinh lam am CSDL: {e}")
-
-    warmup_task = asyncio.create_task(_startup_warmup())
-
-    # Theo dõi giá định kỳ cho các yêu cầu "báo khi giảm giá"
-    price_watcher_service.interval = max(60, settings.PRICE_WATCH_INTERVAL_MINUTES * 60)
-    watcher_task = asyncio.create_task(price_watcher_service.start())
-
-    yield
-
-    # Huy task nen neu con dang chay khi tat server
-    price_watcher_service.stop()
-    for task in (warmup_task, watcher_task):
-        if not task.done():
-            task.cancel()
-    # Giải phóng kết nối khi tắt server
-    await close_db()
+setup_logging()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -63,32 +29,27 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",      # Swagger UI tại http://localhost:8000/docs
     redoc_url="/redoc",    # Redoc UI tại http://localhost:8000/redoc
-    lifespan=lifespan
+    lifespan=lifespan,
 )
+setup_middleware(app)
+register_error_handlers(app)
 
+# (router, cần đăng nhập cho mọi endpoint không). Router không đánh dấu tự kiểm tra quyền trong từng endpoint.
+ROUTERS = [
+    (auth_router, False),
+    (chat_router, False),
+    (products_router, True),
+    (link_parser_router, True),
+    (alerts_router, False),
+    (crawler_router, False),
+    (policies_router, True),
+    (feedback_router, False),
+]
+for router, login_required in ROUTERS:
+    dependencies = [Depends(require_user)] if login_required else []
+    for prefix in ("/api", "/api/v1"):
+        app.include_router(router, prefix=prefix, dependencies=dependencies)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(auth_router, prefix="/api")
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(chat_router, prefix="/api")
-app.include_router(chat_router, prefix="/api/v1")
-app.include_router(products_router, prefix="/api", dependencies=[Depends(require_user)])
-app.include_router(products_router, prefix="/api/v1", dependencies=[Depends(require_user)])
-app.include_router(link_parser_router, prefix="/api", dependencies=[Depends(require_user)])
-app.include_router(link_parser_router, prefix="/api/v1", dependencies=[Depends(require_user)])
-app.include_router(alerts_router, prefix="/api")
-app.include_router(alerts_router, prefix="/api/v1")
-app.include_router(crawler_router, prefix="/api")
-app.include_router(crawler_router, prefix="/api/v1")
-app.include_router(policies_router, prefix="/api", dependencies=[Depends(require_user)])
-app.include_router(policies_router, prefix="/api/v1", dependencies=[Depends(require_user)])
 
 @app.get("/", tags=["Root"])
 async def root():
@@ -98,6 +59,7 @@ async def root():
         "llm_provider": settings.LLM_PROVIDER,
         "langsmith_tracing": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1") and bool(settings.LANGCHAIN_API_KEY)
     }
+
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -109,6 +71,7 @@ async def health_check():
         "langsmith_project": settings.LANGCHAIN_PROJECT,
         "langsmith_tracing_enabled": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1")
     }
+
 
 if __name__ == "__main__":
     import uvicorn

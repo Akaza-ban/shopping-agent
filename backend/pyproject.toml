@@ -1,0 +1,22 @@
+# Cấu hình công cụ cho backend. Cài ruff: pip install ruff
+# Kiểm tra: make lint      Tự sửa được thì sửa: make lint-fix      Định dạng code: make format
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["chroma_db", "docs"]
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes (import thừa, tên chưa định nghĩa), I: sắp xếp import, B: lỗi hay gặp, UP: cú pháp mới
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # dòng dài: để formatter lo
+    "B008",  # Depends() trong tham số mặc định là cách dùng chuẩn của FastAPI
+]
+
+[tool.ruff.lint.per-file-ignores]
+# script thêm backend vào sys.path trước khi import
+"scripts/**" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["application", "core", "database", "integrations", "jobs", "memory", "services", "shared", "src"]

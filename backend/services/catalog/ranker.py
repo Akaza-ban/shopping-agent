@@ -1,7 +1,8 @@
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.catalog.platforms.common import canonical_spec_label
+from integrations.platforms.common import canonical_spec_label
+from services.catalog.reviews import is_sold_label, parse_volume, review_count  # noqa: F401 (parse_volume: dùng lại từ đây)
 
 BASE_WEIGHTS = {"attributes": 35, "budget": 20, "quality": 25, "deal": 10, "preference": 10}
 PRIORITY_WEIGHTS = {
@@ -22,15 +23,6 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\-_]+", "", str(s).lower())
 
 
-def parse_volume(text: Any) -> int:
-    """'Đã bán 3,4k' -> 3400, '12 đánh giá' -> 12, 'Chưa có đánh giá' -> 0."""
-    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(k|nghìn)?", str(text or "").lower())
-    if not m:
-        return 0
-    value = float(m.group(1).replace(",", "."))
-    return int(value * 1000) if m.group(2) else int(value)
-
-
 def _spec_text(p: Dict[str, Any]) -> str:
     specs = p.get("specs")
     if isinstance(specs, dict):
@@ -39,7 +31,7 @@ def _spec_text(p: Dict[str, Any]) -> str:
 
 
 def verifiable_attributes(criteria: Any) -> Dict[str, str]:
-   
+    """Thông số yêu cầu có thể đối chiếu với tên / thông số sản phẩm (giá trị ngắn, VD "RTX 4070", "16GB")."""
     attrs = getattr(criteria, "attributes", None) or {}
     result = {}
     for k, v in attrs.items():
@@ -55,7 +47,7 @@ _wanted_attributes = verifiable_attributes
 
 
 def check_attribute(p: Dict[str, Any], key: str, wanted: str) -> Tuple[str, Optional[str]]:
-   
+    """(verified | mismatch | unknown, giá trị thực tế khi mismatch) của một thông số yêu cầu trên sản phẩm."""
     haystack = _norm(f"{p.get('name', '')} {_spec_text(p)} {p.get('aiSummary', '')}")
     if _norm(wanted) in haystack:
         return "verified", None
@@ -119,13 +111,18 @@ def _score_budget(p: Dict[str, Any], criteria: Any) -> Tuple[float, List[str]]:
 
 
 def _score_quality(p: Dict[str, Any]) -> Tuple[float, List[str]]:
-    """Trung bình Bayes theo số lượt đánh giá / đã bán: ít lượt thì kéo về PRIOR_RATING."""
+    """
+    Trung bình Bayes theo số lượt đánh giá: ít lượt thì kéo về PRIOR_RATING.
+    Sàn chỉ ghi số đã bán thì không biết điểm dựa trên bao nhiêu đánh giá: lượt bán chỉ chứng tỏ có người mua,
+    nên tính tối đa bằng PRIOR_WEIGHT lượt (điểm và mức giả định nặng ngang nhau).
+    """
     rating = float(p.get("rating") or 0)
     if rating <= 0:
         return 0.35, ["Chưa có đánh giá"]
-    volume = parse_volume(p.get("reviewsCount"))
+    label = p.get("reviewsCount")
+    volume = min(parse_volume(label), PRIOR_WEIGHT) if is_sold_label(label) else review_count(label)
     bayes = (volume * rating + PRIOR_WEIGHT * PRIOR_RATING) / (volume + PRIOR_WEIGHT)
-    reasons = [f"Đánh giá {rating:.1f}/5 từ {volume:,} lượt"] if volume >= 100 and rating >= 4.5 else []
+    reasons = [f"Đánh giá {rating:.1f}/5 từ {volume:,} lượt"] if not is_sold_label(label) and volume >= 100 and rating >= 4.5 else []
     return max(0.0, min(1.0, (bayes - 3.0) / 2.0)), reasons
 
 

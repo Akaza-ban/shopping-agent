@@ -24,7 +24,7 @@ def _logged_in_user(request):
         yield
         return
     from src.main import app
-    from src.auth import require_user, require_admin
+    from src.dependencies.auth import require_user, require_admin
 
     app.dependency_overrides[require_user] = lambda: TEST_USER
     app.dependency_overrides[require_admin] = lambda: TEST_USER

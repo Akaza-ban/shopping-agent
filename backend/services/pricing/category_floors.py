@@ -3,6 +3,9 @@ import logging
 import time
 from typing import Dict, Iterable, Optional, Tuple
 
+from database.repositories import product_repository
+from shared.exceptions import DatabaseError
+
 logger = logging.getLogger("category_floors")
 
 FLOOR_PERCENTILE = 0.05
@@ -42,13 +45,9 @@ class CategoryFloors:
         """Tính lại từ bảng products; mặc định chỉ khi đã quá REFRESH_SECONDS."""
         if not force and time.time() - self._updated_at < REFRESH_SECONDS:
             return
-        from sqlalchemy import select
-        from database.connection import async_session
-        from database.models import ProductModel
         try:
-            async with async_session() as session:
-                rows = (await session.execute(select(ProductModel.category, ProductModel.current_price))).all()
-        except Exception as e:
+            rows = await product_repository.category_prices()
+        except DatabaseError as e:
             logger.warning(f"Không tính được ngưỡng giá theo ngành: {e}")
             return
         self.set(compute_floors(rows))

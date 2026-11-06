@@ -1,27 +1,22 @@
-import json
 import re
 import logging
-from typing import Any, Dict, Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage
+from pydantic import ValidationError
+
 from ..state import AgentState, UniversalSearchCriteria
+from ..prompts.language import language_instruction
 from ..prompts.router_prompts import ROUTER_SYSTEM_PROMPT
 from .patterns import ADVICE_RE, OUT_OF_SCOPE_RE, SEARCH_ACTION_RE, URL_RE
-from src.config import get_chat_model
-from services.catalog.platforms import platform_mentioned
+from integrations.llm import get_chat_model
+from integrations.platforms import platform_mentioned
+from integrations.llm import ask_llm, parse_llm_json
+from shared.exceptions import LLMError, LLMResponseError
 
 logger = logging.getLogger("orchestrator")
 
 _FALLBACK_ADVICE_RE = re.compile(r'\b(?:n[êe]n\s+mua|c[óo]\s+n[êe]n\s+mua|n[êe]n\s+ch[ọo]n|ph[âa]n\s+v[âa]n|t[ưu]\s+v[ấa]n|ch[àa]o|hello|hi|alo)\b')
 _PRICE_RE = re.compile(r'(\d+)\s*(triệu|tr|củ)')
-
-
-def _parse_json(raw: str) -> Dict[str, Any]:
-    """JSON trong câu trả lời của LLM (bỏ khối ```json ... ``` nếu có)."""
-    text = raw
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0].strip()
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0].strip()
-    return json.loads(text)
 
 
 class OrchestratorAgent:
@@ -40,19 +35,16 @@ class OrchestratorAgent:
         if chat_model:
             try:
                 return await self._llm_route(state, chat_model, query)
-            except Exception as e:
+            except LLMError as e:
                 logger.warning(f"Lỗi khi gọi LLM bóc tách ({e}), chuyển sang phân loại bằng từ khóa.")
         return self._fallback_route(state)
 
     async def _llm_route(self, state: AgentState, chat_model, query: str) -> AgentState:
-        from langchain_core.messages import SystemMessage, HumanMessage
-        from .shopping_advisor import language_instruction
-
-        response = await chat_model.ainvoke([
+        raw = await ask_llm(chat_model, [
             SystemMessage(content=ROUTER_SYSTEM_PROMPT + language_instruction(state.language)),
             HumanMessage(content=self._router_prompt(state, query)),
         ])
-        parsed = _parse_json(response.content if hasattr(response, "content") else str(response))
+        parsed = parse_llm_json(raw)
 
         intent = parsed.get("intent", "search_products")
         reply = str(parsed.get("reply") or "").strip()
@@ -64,9 +56,14 @@ class OrchestratorAgent:
             intent = "general_advice"  # thiếu câu trả lời -> để Advisor viết
 
         state.intent = self._guard_intent(intent, query.lower())
+        about_previous = parsed.get("about_previous_products")
+        state.about_previous_products = about_previous if isinstance(about_previous, bool) else None
         criteria = parsed.get("criteria", {})
         if criteria:
-            state.criteria = UniversalSearchCriteria(**criteria)
+            try:
+                state.criteria = UniversalSearchCriteria(**criteria)
+            except (ValidationError, TypeError) as e:
+                raise LLMResponseError(f"Tiêu chí LLM trích xuất không hợp lệ: {e}") from e
             logger.info(f"[LLM Extracted] Intent: {state.intent} | Criteria: {state.criteria.model_dump()}")
         return state
 

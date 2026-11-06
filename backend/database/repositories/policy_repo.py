@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import func, select
 
 from ..connection import async_session
+from ..errors import raises_database_error
 from ..models import PlatformModel, PolicyChunkModel, PolicyDocumentModel, PolicyTermModel
 
 SUMMARY = "summary"
@@ -32,6 +33,7 @@ def term_to_dict(term: PolicyTermModel, platform: PlatformModel, url: str, doc_t
     }
 
 
+@raises_database_error
 class PolicyRepository:
     """Kho chính sách đổi trả, bảo hành của các nền tảng."""
 

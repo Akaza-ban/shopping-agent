@@ -1,0 +1,42 @@
+{
+  "clarify.budget_question": "Roughly how much do you plan to spend on {entity}?",
+  "clarify.default_entity": "the product",
+  "clarify.purpose_hint": " If you can, also tell me what you mainly need it for.",
+  "clarify.context_hint": "Knowing your budget lets the assistant filter the right price segment and rank more accurately before scanning the stores.",
+  "clarify.budget_skip": "No budget limit, just search",
+  "clarify.budget_under": "Under {amount} million VND",
+  "clarify.budget_over": "Over {amount} million VND",
+  "clarify.budget_range": "{low}–{high} million VND",
+
+  "suggest.link": [
+    "Compare {name} with rivals in the same price range",
+    "What are the warranty and return policies for this link?",
+    "Are there any extra vouchers or free shipping deals?"
+  ],
+  "suggest.pair": [
+    "Compare {a} and {b} in detail",
+    "Which one has better battery life and durability?",
+    "Is there a warranty plan or 0% installment option?"
+  ],
+  "suggest.single": [
+    "How many hours does the {name} battery really last?",
+    "What is the warranty policy at {platform}?",
+    "Are there other models in the same price range to compare?"
+  ],
+  "suggest.phone_words": ["iphone", "phone"],
+  "suggest.phones": [
+    "Best battery-life phones for 15–20 million VND",
+    "iPhone 15 or iPhone 16?",
+    "Best camera phone in its segment"
+  ],
+  "suggest.laptops": [
+    "Thin and light office laptop under 15 million VND",
+    "Best mid-range gaming laptop right now",
+    "MacBook or Windows laptop?"
+  ],
+  "suggest.default": [
+    "Best phone for 10–15 million VND",
+    "Thin and light office laptop with long battery life",
+    "Today's biggest tech deals"
+  ]
+}

@@ -12,8 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import httpx  # noqa: E402
 import chromadb  # noqa: E402
 from chromadb.config import Settings as ChromaSettings  # noqa: E402
+from chromadb.errors import NotFoundError  # noqa: E402
 
-from services.catalog.categories import tiki_path_from_breadcrumbs  # noqa: E402
+from shared.categories import tiki_path_from_breadcrumbs  # noqa: E402
 from services.catalog.category_resolver import category_resolver  # noqa: E402
 from services.rag import DEFAULT_CHROMA_PATH, ProductRAGService  # noqa: E402
 
@@ -24,7 +25,7 @@ def _from_old_collection(name: str):
     client = chromadb.PersistentClient(path=DEFAULT_CHROMA_PATH, settings=ChromaSettings(anonymized_telemetry=False))
     try:
         col = client.get_collection(name)
-    except Exception:
+    except (NotFoundError, ValueError):  # collection không tồn tại
         print(f"Không có collection '{name}', bỏ qua.")
         return []
     data = col.get(include=["metadatas"])
@@ -32,7 +33,7 @@ def _from_old_collection(name: str):
     for meta in data["metadatas"]:
         try:
             p = json.loads(meta["raw_json"])
-        except Exception:
+        except (KeyError, TypeError, ValueError):  # bản ghi cũ thiếu / hỏng raw_json
             continue
         out.append((p, int(meta.get("updated_at") or 0)))
     return out

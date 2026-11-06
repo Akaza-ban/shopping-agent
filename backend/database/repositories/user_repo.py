@@ -3,11 +3,14 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select, delete
+from sqlalchemy import func, select, delete, update
 from sqlalchemy.exc import IntegrityError
 
+from shared.exceptions import EmailAlreadyRegistered
+
 from ..connection import async_session
-from ..models import UserModel, AuthTokenModel, UserDataModel
+from ..errors import raises_database_error
+from ..models import UserModel, AuthTokenModel, UserDataModel, PasswordResetModel
 
 
 def user_to_dict(u: UserModel) -> Dict[str, Any]:
@@ -20,10 +23,7 @@ def user_to_dict(u: UserModel) -> Dict[str, Any]:
     }
 
 
-class EmailAlreadyRegistered(Exception):
-    pass
-
-
+@raises_database_error
 class UserRepository:
     """Tài khoản, phiên đăng nhập và dữ liệu cá nhân của người dùng."""
 
@@ -89,6 +89,45 @@ class UserRepository:
         async with self.session_factory() as session:
             await session.execute(delete(AuthTokenModel).where(AuthTokenModel.token_hash == token_hash))
             await session.commit()
+
+    # ------------------------------------------------------------------ đặt lại mật khẩu
+    async def create_password_reset(self, user_id: str, token_hash: str, ttl_seconds: int) -> None:
+        """Link mới thay cho mọi link cũ chưa dùng (vô hiệu chứ không xóa, để vẫn đếm được số link đã gửi trong giờ)."""
+        async with self.session_factory() as session:
+            now = datetime.utcnow()
+            await session.execute(update(PasswordResetModel).where(
+                PasswordResetModel.user_id == user_id, PasswordResetModel.used_at.is_(None)).values(used_at=now))
+            session.add(PasswordResetModel(token_hash=token_hash, user_id=user_id, created_at=now,
+                                           expires_at=now + timedelta(seconds=ttl_seconds)))
+            await session.commit()
+
+    async def count_password_resets(self, user_id: str, since: datetime) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count()).select_from(PasswordResetModel).where(
+                PasswordResetModel.user_id == user_id, PasswordResetModel.created_at >= since)
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def user_for_password_reset(self, token_hash: str) -> Optional[UserModel]:
+        """Chủ tài khoản của link còn hiệu lực (chưa dùng, chưa hết hạn); None nếu link không dùng được."""
+        async with self.session_factory() as session:
+            reset = await session.get(PasswordResetModel, token_hash)
+            if not reset or reset.used_at or reset.expires_at < datetime.utcnow():
+                return None
+            return await session.get(UserModel, reset.user_id)
+
+    async def use_password_reset(self, token_hash: str, password_hash: str) -> Optional[UserModel]:
+        """Đổi mật khẩu bằng link (đánh dấu đã dùng ngay trong cùng giao dịch); None nếu link không dùng được."""
+        async with self.session_factory() as session:
+            reset = await session.get(PasswordResetModel, token_hash)
+            if not reset or reset.used_at or reset.expires_at < datetime.utcnow():
+                return None
+            user = await session.get(UserModel, reset.user_id)
+            if not user:
+                return None
+            reset.used_at = datetime.utcnow()
+            user.password_hash = password_hash
+            await session.commit()
+            return user
 
     async def delete_user_tokens(self, user_id: str, keep_token_hash: Optional[str] = None) -> None:
         """Đăng xuất mọi thiết bị (giữ lại phiên hiện tại nếu truyền vào)."""

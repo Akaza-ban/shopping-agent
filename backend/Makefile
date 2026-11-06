@@ -1,4 +1,4 @@
-.PHONY: run install test lint clean help crawl
+.PHONY: run install test test-unit test-integration test-live lint lint-fix format clean help crawl
 
 # Chạy máy chủ FastAPI với Uvicorn và auto-reload
 run:
@@ -21,6 +21,26 @@ install:
 test:
 	pytest
 
+test-unit:
+	pytest tests/unit
+
+test-integration:
+	pytest tests/integration
+
+# Cả các test gọi trang / API thật (cần mạng và API key)
+test-live:
+	RUN_LIVE_TESTS=1 pytest
+
+# Kiểm tra code (cần: pip install ruff)
+lint:
+	ruff check .
+
+lint-fix:
+	ruff check . --fix
+
+format:
+	ruff format .
+
 # Dọn dẹp cache
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
@@ -28,8 +48,11 @@ clean:
 
 help:
 	@echo "Các lệnh khả dụng:"
-	@echo "  make run      - Khởi chạy server FastAPI tại http://localhost:8000 (Tự động warm-up)"
-	@echo "  make crawl    - Chủ động thu thập các mặt hàng HOT vào SQLite (CLI)"
-	@echo "  make install  - Cài đặt requirements.txt"
-	@echo "  make test     - Chạy kiểm thử pytest"
-
+	@echo "  make run              - Khởi chạy server FastAPI tại http://localhost:8000 (Tự động warm-up)"
+	@echo "  make crawl            - Chủ động thu thập các mặt hàng HOT vào SQLite (CLI)"
+	@echo "  make install          - Cài đặt requirements.txt"
+	@echo "  make test             - Chạy toàn bộ test"
+	@echo "  make test-unit        - Chỉ test logic (nhanh, không cần CSDL / mạng)"
+	@echo "  make test-integration - Test qua API, CSDL tạm, LLM / sàn thật"
+	@echo "  make test-live        - Thêm các test gọi trang / API thật"
+	@echo "  make lint             - Kiểm tra code bằng ruff"

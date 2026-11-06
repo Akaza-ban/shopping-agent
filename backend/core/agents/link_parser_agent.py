@@ -1,6 +1,11 @@
-from services.catalog.platforms import display_names
+import logging
+
+from integrations.platforms import display_names
+from shared.exceptions import CrawlerError
 from ..state import AgentState, ProductItemModel
 from ..tools.url_extractor import UrlExtractorTool, unsupported_site
+
+logger = logging.getLogger("link_parser_agent")
 
 class LinkParserAgent:
     """Agent chịu trách nhiệm bóc tách dữ liệu từ đường dẫn link sản phẩm."""
@@ -21,7 +26,18 @@ class LinkParserAgent:
             )
             return state
 
-        parsed_data = await self.extractor.run(url=url)
+        try:
+            parsed_data = await self.extractor.run(url=url)
+        except CrawlerError as e:
+            logger.warning(f"Không đọc được link {url}: {e}")
+            state.found_products = []
+            state.recommended_product = None
+            state.final_response = (
+                "**Chưa đọc được trang sản phẩm này.**\n\n"
+                "Trang có thể đã đổi cấu trúc hoặc chặn truy cập tự động. "
+                "Hãy cho tôi biết tên sản phẩm, tôi sẽ tìm trên các sàn."
+            )
+            return state
 
         if parsed_data.get("priceUnavailable"):
             state.found_products = []

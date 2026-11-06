@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
-from src.config import settings
+from shared.config import settings
 
 Base = declarative_base()
 
@@ -20,7 +20,7 @@ async def get_db():
         yield session
 
 def _add_missing_columns(sync_conn) -> None:
-
+    """Thêm vào bảng có sẵn các cột mới khai báo trong model (thay cho migration, SQLite)."""
     from sqlalchemy import inspect
     inspector = inspect(sync_conn)
     existing_tables = set(inspector.get_table_names())

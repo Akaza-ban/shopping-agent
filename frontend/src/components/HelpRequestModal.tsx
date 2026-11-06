@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, LifeBuoy, MessageSquarePlus, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, LifeBuoy, Loader2, MessageSquarePlus, X } from 'lucide-react';
 import type { HelpKind } from './Sidebar.tsx';
 import { msg, t } from '../i18n/index.tsx';
 
 interface HelpRequestModalProps {
   kind: HelpKind | null;
-  onSubmit: (kind: HelpKind, content: string, contact: string) => void;
+  onSubmit: (kind: HelpKind, topic: string, content: string, contact: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -24,12 +24,14 @@ const COPY: Record<HelpKind, { title: string; icon: React.ElementType; placehold
   },
 };
 
-// Góp ý / yêu cầu hỗ trợ: hiện được ghi vào Lịch sử hoạt động (backend chưa có API nhận phản hồi)
+// Góp ý / yêu cầu hỗ trợ: gửi lên server cho quản trị viên xử lý
 export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubmit, onClose }) => {
   const [topic, setTopic] = useState('');
   const [content, setContent] = useState('');
   const [contact, setContact] = useState('');
   const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (kind) {
@@ -37,16 +39,26 @@ export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubm
       setContent('');
       setContact('');
       setSent(false);
+      setSending(false);
+      setError('');
     }
   }, [kind]);
 
   if (!kind) return null;
   const { title, icon: Icon, placeholder, topics } = COPY[kind];
 
-  const submit = () => {
-    if (!content.trim()) return;
-    onSubmit(kind, `[${topic}] ${content.trim()}`, contact.trim());
-    setSent(true);
+  const submit = async () => {
+    if (!content.trim() || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      await onSubmit(kind, topic, content.trim(), contact.trim());
+      setSent(true);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : t('Không gửi được, vui lòng thử lại.'));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -66,7 +78,7 @@ export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubm
           <div className="p-8 text-center space-y-3">
             <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-600" />
             <p className="text-sm font-semibold text-stone-900">{t('Đã ghi nhận, cảm ơn bạn!')}</p>
-            <p className="text-xs text-stone-500">{t('Nội dung đã được lưu vào mục Lịch sử hoạt động của tài khoản.')}</p>
+            <p className="text-xs text-stone-500">{t('Quản trị viên đã nhận được nội dung và sẽ xử lý sớm.')}</p>
           </div>
         ) : (
           <div className="p-6 space-y-4 text-xs">
@@ -98,6 +110,12 @@ export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubm
                 className="w-full px-3 py-2 border border-stone-300 rounded-xl outline-none focus:border-stone-800 focus:ring-1 focus:ring-stone-800 text-stone-900 placeholder:text-stone-400"
               />
             )}
+            {error && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
+                <span>{error}</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -107,11 +125,12 @@ export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubm
           </button>
           {!sent && (
             <button
-              onClick={submit}
-              disabled={!content.trim()}
-              className="px-4 py-2 bg-stone-900 text-amber-50 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors disabled:bg-stone-300"
+              onClick={() => void submit()}
+              disabled={!content.trim() || sending}
+              className="px-4 py-2 bg-stone-900 text-amber-50 rounded-xl text-xs font-semibold hover:bg-stone-800 transition-colors disabled:bg-stone-300 flex items-center gap-1.5"
             >
-              {t('Gửi')}
+              {sending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {sending ? t('Đang gửi...') : t('Gửi')}
             </button>
           )}
         </div>

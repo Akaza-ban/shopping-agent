@@ -1,4 +1,4 @@
-from services.catalog.platforms import all_platforms
+from integrations.platforms import all_platforms
 
 ROUTER_SYSTEM_PROMPT = """Bạn trích xuất ý định và tiêu chí từ câu hỏi của người dùng trợ lý mua sắm ShopAI, thuộc mọi ngành hàng. Chỉ trả về JSON hợp lệ.
 
@@ -28,7 +28,7 @@ ROUTER_SYSTEM_PROMPT = """Bạn trích xuất ý định và tiêu chí từ câ
    - `brand_tier`: 'thương hiệu lớn' nếu nói "thương hiệu lớn", "hàng hiệu", "chính hãng xịn".
    - `suggested_brands`: nếu không nêu hãng, gợi ý 3-4 hãng uy tín của ngành hàng (chảo: ["Tefal", "Lock&Lock", "Elmich", "Sunhouse"]; laptop: ["ASUS", "Acer", "Dell", "Lenovo"]).
 
-6. `attributes`: mọi thông số trong câu, dạng ngắn kiểm chứng được trên trang sản phẩm ("RTX 4070", "16GB", "9 kg", "Inverter"). VD laptop {"cpu","gpu","ram","ssd"}; tai nghe {"anc","type","battery_hours"}; thời trang {"size","color","gender"}. Nhu cầu mô tả tự do ("nhà 4 người", "pin trâu") ghi vào `usage_purpose`, không vào attributes. Ngân sách không đưa vào attributes hay cleaned_query.
+6. `attributes`: mọi thông số trong câu, dạng ngắn kiểm chứng được trên trang sản phẩm ("RTX 4070", "16GB", "9 kg", "Inverter"). VD laptop {"cpu","gpu","ram","ssd"}; tai nghe {"anc","type","battery_hours"}; thời trang {"size","color","gender"}. Nhu cầu mô tả tự do ("nhà 4 người", "pin trâu") và mục đích dùng ("gaming", "chơi game", "văn phòng", "quà tặng") ghi vào `usage_purpose`, KHÔNG vào attributes (không có khóa "usage"). Ngân sách không đưa vào attributes hay cleaned_query.
 
 7. `usage_purpose`: 'học tập', 'chơi game', 'quà tặng'... `priority`: 'cheapest', 'best_performance', 'best_rating', 'brand_reputation', 'best_value'.
 
@@ -40,10 +40,14 @@ ROUTER_SYSTEM_PROMPT = """Bạn trích xuất ý định và tiêu chí từ câ
     - "con thứ 2", "máy 1", "#1" trỏ tới sản phẩm số tương ứng; "máy này", "nó" trỏ tới sản phẩm gợi ý gần nhất.
     - Hỏi chi tiết về sản phẩm đã gợi ý: `general_advice`, `product_type` là tên sản phẩm đó, kế thừa danh mục.
     - Trợ lý vừa hỏi làm rõ và người dùng trả lời ngắn ("20 - 25 triệu", "khoảng 10 củ, nhà 4 người"): `search_products`, kế thừa danh mục/thực thể/cleaned_query của yêu cầu trước, bổ sung giá và mục đích.
+    - Trợ lý vừa ĐỀ NGHỊ làm một việc ở cuối lượt trước (VD "Bạn có muốn tôi tìm các mẫu cụ thể trên các sàn không?") và người dùng ĐỒNG Ý (hiểu theo ý nghĩa, kể cả câu rất ngắn): thực hiện đúng việc vừa đề nghị. Đề nghị tìm / kiểm tra sản phẩm -> `search_products`, kế thừa đầy đủ hãng, dòng máy, mục đích của yêu cầu trước; `cleaned_query` là tên các dòng sản phẩm đang bàn. Người dùng từ chối -> `smalltalk`.
+    - Người dùng CHUYỂN sang nhu cầu / mặt hàng khác (VD đang xem lót chuột rồi hỏi quà sinh nhật): KHÔNG kế thừa danh mục, thực thể, ngân sách của chủ đề cũ.
+
+11. `about_previous_products` (ngoài `criteria`): true khi câu hỏi nói về chính các sản phẩm đã đề xuất ở lượt trước (hỏi thêm, so sánh, chọn một trong số đó); false khi không có sản phẩm lượt trước hoặc người dùng đã chuyển sang nhu cầu / mặt hàng khác.
 
 Mẫu JSON (không markdown, không văn bản ngoài JSON):
-{"intent": "search_products", "criteria": {"category": "home_appliances", "category_name": "Đồ gia dụng & Nhà bếp", "product_type": "chảo", "target_entity": "chảo", "is_accessory": false, "min_price": null, "max_price": null, "brands": [], "brand_tier": "thương hiệu lớn", "suggested_brands": ["Tefal", "Lock&Lock", "Elmich", "Sunhouse"], "attributes": {"coating": "chống dính"}, "usage_purpose": "nấu ăn gia đình", "priority": "brand_reputation", "target_platforms": ["all"], "cleaned_query": "chảo chống dính Tefal Lock&Lock Elmich"}, "extracted_link": null, "reply": null}
-Với `smalltalk`: {"intent": "smalltalk", "criteria": {}, "reply": "câu trả lời của bạn"}
+{"intent": "search_products", "criteria": {"category": "home_appliances", "category_name": "Đồ gia dụng & Nhà bếp", "product_type": "chảo", "target_entity": "chảo", "is_accessory": false, "min_price": null, "max_price": null, "brands": [], "brand_tier": "thương hiệu lớn", "suggested_brands": ["Tefal", "Lock&Lock", "Elmich", "Sunhouse"], "attributes": {"coating": "chống dính"}, "usage_purpose": "nấu ăn gia đình", "priority": "brand_reputation", "target_platforms": ["all"], "cleaned_query": "chảo chống dính Tefal Lock&Lock Elmich"}, "about_previous_products": false, "extracted_link": null, "reply": null}
+Với `smalltalk`: {"intent": "smalltalk", "criteria": {}, "about_previous_products": false, "reply": "câu trả lời của bạn"}
 """.replace(
     "{PLATFORM_HINT}", ", ".join(f'["{p.id}"] ({p.name.lower()})' for p in all_platforms())
 )

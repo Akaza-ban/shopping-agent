@@ -459,6 +459,42 @@ export const EN: Record<string, string> = {
   "Còn hộp, phụ kiện, không có tác động vật lý": "Box and accessories intact, no physical damage",
   "Hoàn tiền tại cửa hàng": "Refund in store",
   "Sản phẩm rơi vỡ, vào nước không được đổi trả": "Dropped, broken or water-damaged products cannot be returned",
+
+  // góp ý & hỗ trợ
+  "Đang gửi...": "Sending...",
+  "Không gửi được, vui lòng thử lại.": "Couldn't send, please try again.",
+  "Quản trị viên đã nhận được nội dung và sẽ xử lý sớm.": "The administrators have received your message and will handle it soon.",
+  "Góp ý": "Feedback",
+  "Mới": "New",
+  "Đang xử lý": "In progress",
+  "Đã xong": "Resolved",
+  "Làm mới": "Refresh",
+  "Không tải được danh sách.": "Couldn't load the list.",
+  "Không lưu được, vui lòng thử lại.": "Couldn't save, please try again.",
+  "Góp ý và yêu cầu hỗ trợ người dùng gửi tới quản trị viên, mới nhất ở trên.": "Feedback and support requests users sent to the administrators, newest first.",
+  "Không có yêu cầu nào": "No requests",
+  "Góp ý và yêu cầu hỗ trợ mới của người dùng sẽ hiện ở đây.": "New feedback and support requests from users will appear here.",
+  "Ghi chú nội bộ (người dùng không thấy)...": "Internal note (not visible to the user)...",
+  "Chuyển sang: {status}": "Mark as: {status}",
+  "Lưu ghi chú": "Save note",
+  "Bạn đã gửi khá nhiều yêu cầu trong một giờ qua, vui lòng thử lại sau.": "You've sent quite a few requests in the past hour, please try again later.",
+  "Nội dung không được để trống.": "The message can't be empty.",
+  "Không tìm thấy yêu cầu.": "Request not found.",
+
+  // quên mật khẩu
+  "Quên mật khẩu?": "Forgot password?",
+  "Quên mật khẩu": "Forgot password",
+  "Nhập email đã đăng ký, chúng tôi sẽ gửi link để bạn đặt mật khẩu mới.": "Enter your registered email and we'll send you a link to set a new password.",
+  "Gửi link đặt lại mật khẩu": "Send reset link",
+  "Quay lại đăng nhập": "Back to sign in",
+  "Nếu email đã đăng ký, chúng tôi đã gửi link đặt lại mật khẩu. Vui lòng kiểm tra hộp thư (cả mục Spam).": "If this email is registered, we've sent a password reset link. Please check your inbox (and the Spam folder).",
+  "Đặt mật khẩu mới": "Set a new password",
+  "Tài khoản: {email}": "Account: {email}",
+  "Mật khẩu mới": "New password",
+  "Đang kiểm tra link...": "Checking the link...",
+  "Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu link mới.": "This password reset link is invalid or has expired. Please request a new one.",
+  "Sau khi đổi, tài khoản sẽ được đăng xuất khỏi mọi thiết bị.": "After the change, the account will be signed out on every device.",
+  "Đã đặt mật khẩu mới. Vui lòng đăng nhập lại.": "Your new password is set. Please sign in again.",
 };
 
 /** Câu có biến từ backend: biểu thức chính quy -> mẫu tiếng Anh ($1, $2...), dùng khi EN không có khóa. */

@@ -1,16 +1,18 @@
 """RAG sản phẩm trên ChromaDB: truy xuất lai vector (bge-m3 qua API) + BM25, hợp nhất bằng RRF."""
 import logging
 import os
+import sqlite3
 import threading
 import time
 from typing import Any, Dict, List, Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from chromadb.errors import ChromaError
 
 from services.rag.bm25 import BM25Index
 from services.rag.documents import Product, build_document, build_metadata, product_from_metadata, product_id
-from services.rag.embeddings import APIEmbeddings, EmbeddingError, build_default_embeddings, cosine_distance
+from integrations.embedding import APIEmbeddings, EmbeddingError, build_default_embeddings, cosine_distance
 from services.rag.filters import SearchFilters
 from services.rag.scoring import Candidate, Thresholds
 from services.rag.text import query_terms
@@ -19,6 +21,10 @@ logger = logging.getLogger("rag_service")
 
 DEFAULT_CHROMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "chroma_db")
 RRF_K = 60
+
+# Lỗi ChromaDB có thể ném ra (bản Rust ném RuntimeError / ValueError, lớp lưu trữ ném sqlite3.Error / OSError).
+# Kho RAG chỉ là bộ đệm tìm kiếm: các lỗi này được ghi log và trả về giá trị rỗng, không làm hỏng lượt tư vấn.
+VECTOR_STORE_ERRORS = (ChromaError, ValueError, RuntimeError, OSError, sqlite3.Error)
 _FROM_CONFIG = object()
 
 
@@ -33,7 +39,7 @@ class ProductRAGService:
         thresholds: Thresholds = Thresholds(),
         hybrid: bool = True,
     ):
-        from src.config import settings
+        from shared.config import settings
         self.persist_directory = persist_directory
         self.collection_name = collection_name or settings.RAG_COLLECTION
         self.embedder = embedder or build_default_embeddings()
@@ -59,7 +65,7 @@ class ProductRAGService:
             )
             self._collection = self._get_or_create()
             logger.info(f"[ChromaDB] '{self.collection_name}' ({self.embedder.model}), {self._collection.count()} sản phẩm")
-        except Exception as e:
+        except VECTOR_STORE_ERRORS as e:
             logger.error(f"[ChromaDB] Lỗi khởi tạo Vector Database: {e}", exc_info=True)
             self._client = self._collection = None
 
@@ -101,7 +107,7 @@ class ProductRAGService:
             return 0
         try:
             self._collection.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
-        except Exception as e:
+        except VECTOR_STORE_ERRORS as e:
             logger.error(f"[RAG Upsert Error]: {e}", exc_info=True)
             return 0
 
@@ -186,7 +192,7 @@ class ProductRAGService:
             candidates = self.retrieve_candidates(
                 query, category, min_price, max_price, platform, n=max(limit * 3, 20), max_age_days=max_age_days
             )
-        except Exception as e:
+        except VECTOR_STORE_ERRORS as e:
             logger.error(f"[RAG Search Error]: {e}", exc_info=True)
             return []
 
@@ -263,6 +269,6 @@ class ProductRAGService:
             self._invalidate_bm25()
             logger.info(f"Đã dọn dẹp sạch collection '{self.collection_name}'.")
             return True
-        except Exception as e:
+        except VECTOR_STORE_ERRORS as e:
             logger.error(f"Lỗi khi dọn dẹp collection: {e}")
             return False

@@ -26,6 +26,41 @@ START → load_session → route → clarify ─┬─ ask (hỏi ngân sách) �
 - Mỗi node phát sự kiện SSE qua `get_stream_writer()`: `status`, `products`, `comparison`, `clarification`, `token`, `suggestions`, `done`.
 - Trạng thái giữa các lượt (câu hỏi làm rõ đang chờ trả lời) lưu ở bảng `conversation_states` trong SQLite, nên vẫn còn sau khi khởi động lại server.
 - `POST /api/chat/compare` so sánh danh sách sản phẩm do giao diện gửi lên (VD: mục "Đã lưu") mà không cào lại.
+- Nghiệp vụ của từng bước nằm ở [core/flows/](core/flows/): hỏi làm rõ ngân sách, tìm kiếm (nới lỏng / upsell), câu hỏi gợi ý.
+
+## 🗂️ Cấu trúc thư mục
+
+```
+src/            HTTP: main.py, lifespan.py, middleware/, dependencies/ (đăng nhập, workflow), schemas/ (dữ liệu vào/ra), routes/, errors.py
+application/    use case của từng tính năng: auth, chat, compare, link, alerts, policies, products, feedback, crawler, user_data
+core/           agent LangGraph: graph.py, flows/, agents/, prompts/, tools/, events.py (event SSE), i18n.py + locales/
+services/       nghiệp vụ thuần: catalog (phân loại, xếp hạng, lọc), pricing (kiểm định giá), policy, rag, auth (băm mật khẩu, token)
+integrations/   mọi lời gọi ra ngoài: llm/, platforms/ (từng sàn + đọc link), embedding.py, mail.py, policy_pages.py
+jobs/           việc chạy nền: price_watcher.py, batch_crawler.py, warmup.py
+database/       models/, repositories/, errors.py (SQLAlchemyError -> DatabaseError)
+memory/         bộ nhớ hội thoại (RAM + SQLite)
+shared/         dùng chung, không import tầng nào: config.py, exceptions.py, fallback.py, types.py, categories.py...
+scripts/        lệnh chạy tay: catalog/, policy/, rag/, agent/
+tests/          unit/ (logic, không cần CSDL / mạng), integration/ (API, CSDL tạm, LLM / sàn thật), fixtures/
+```
+
+Hướng import một chiều: `src, jobs, scripts → application → core → services → integrations, database → shared`.
+Lỗi: tầng thấp đổi lỗi thư viện thành lỗi trong [shared/exceptions.py](shared/exceptions.py); [src/errors.py](src/errors.py) đổi lỗi nghiệp vụ thành HTTP 4xx.
+
+| Muốn sửa... | Vào |
+|---|---|
+| Một API (tham số, mã lỗi trả về) | `src/routes/<tính năng>.py`, `src/schemas/<tính năng>.py` |
+| Logic của một tính năng (VD điều kiện tạo theo dõi giá) | `application/<tính năng>.py` |
+| Trợ lý hiểu sai câu hỏi | `core/agents/orchestrator.py`, `core/prompts/router_prompts.py` |
+| Hỏi lại ngân sách không đúng lúc | `core/flows/clarification.py`, `core/constants.py` |
+| Không tìm ra sản phẩm / nới lỏng tiêu chí | `core/flows/search_flow.py`, `core/tools/ecom_search.py` |
+| Câu trả lời của trợ lý | `core/prompts/advisor_prompts.py`, `core/agents/advisor_context.py`; khi LLM lỗi: `advisor_fallback.py` |
+| Câu chữ tiếng Việt / tiếng Anh của trợ lý | `core/locales/vi.json`, `en.json` |
+| Đọc sai giá / thông số của một sàn | `integrations/platforms/<sàn>.py` (TGDĐ, ĐMX: `mwg.py`) |
+| Loại giá bất thường | `services/pricing/guardrails.py` |
+| Thứ tự xếp hạng sản phẩm | `services/catalog/ranker.py` |
+| Nhà cung cấp LLM, model | `integrations/llm/client.py`, `.env` |
+| Theo dõi giá định kỳ | `jobs/price_watcher.py` |
 
 ## 🔐 Tài khoản & phân quyền
 
@@ -67,7 +102,7 @@ Tạo file `.env` từ `.env.example`:
 copy .env.example .env
 ```
 Điền ít nhất một khóa LLM: `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY` hoặc `GROQ_API_KEY`. Hệ thống tự chuyển sang nhà cung cấp kế tiếp khi một bên lỗi.
-Cấu hình duy nhất nằm ở [src/config.py](src/config.py).
+Cấu hình duy nhất nằm ở [shared/config.py](shared/config.py).
 
 ### 4. Khởi chạy máy chủ FastAPI
 ```bash
@@ -78,6 +113,8 @@ uvicorn src.main:app --reload --port 8000
 
 ### 5. Chạy kiểm thử
 ```bash
-pytest                       # thư mục tests/ (vài test gọi LLM thật nếu .env có khóa)
+pytest                       # toàn bộ tests/ (vài test integration gọi LLM thật nếu .env có khóa)
+pytest tests/unit            # chỉ test logic, nhanh
 RUN_LIVE_TESTS=1 pytest      # thêm các test cào sàn thật và đánh giá RAG trên kho thật
+make lint                    # kiểm tra code bằng ruff (pip install ruff)
 ```

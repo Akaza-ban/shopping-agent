@@ -207,7 +207,7 @@ class DataProcessor:
         return processed
 
     def process_product_list(self, raw_products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    
+        """Làm sạch danh sách sản phẩm, bỏ sản phẩm không hợp lệ và trùng lặp (theo link / id)."""
         processed_list = []
         seen_urls = set()
 

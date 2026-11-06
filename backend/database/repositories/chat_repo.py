@@ -5,8 +5,10 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy import select, delete
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..connection import async_session
+from ..errors import raises_database_error
 from ..models import ChatSessionModel, ChatMessageModel, ConversationStateModel
 
 logger = logging.getLogger("chat_repo")
@@ -30,6 +32,7 @@ def _message(session_id: str, sender: str, text: str, now: datetime, msg_id: str
     )
 
 
+@raises_database_error
 class ChatRepository:
     def __init__(self, session_factory=async_session):
         self.session_factory = session_factory
@@ -58,7 +61,7 @@ class ChatRepository:
                     }
                     for r in recent_records
                 ]
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 logger.warning(f"Lỗi lấy tin nhắn session {session_id}: {e}")
                 return []
 
@@ -92,7 +95,7 @@ class ChatRepository:
                     "last_products": last_products,
                     "last_criteria": last_criteria
                 }
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 logger.warning(f"Lỗi lấy ngữ cảnh gần nhất session {session_id}: {e}")
                 return {"last_products": [], "last_criteria": {}}
 
@@ -116,12 +119,12 @@ class ChatRepository:
                 session.add(_message(session_id, "ai", ai_text, now, f"msg-ai-{now_ms + 1}", products, criteria))
                 await session.commit()
                 logger.info(f"[ChatRepo] Đã lưu lượt hội thoại cho session '{session_id}' vào SQLite.")
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 await session.rollback()
                 logger.error(f"Lỗi khi lưu lượt hội thoại: {e}")
 
     async def claim_session(self, session_id: str, user_id: str, title: str = "") -> bool:
-
+        """Gán hội thoại cho người dùng (tạo mới nếu chưa có); False nếu hội thoại thuộc người khác."""
         async with self.session_factory() as session:
             existing = await session.get(ChatSessionModel, session_id)
             if existing is None:
@@ -144,7 +147,7 @@ class ChatRepository:
             try:
                 record = await session.get(ConversationStateModel, session_id)
                 return json.loads(record.state_json) if record and record.state_json else {}
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 logger.warning(f"Lỗi lấy trạng thái hội thoại session {session_id}: {e}")
                 return {}
 
@@ -159,7 +162,7 @@ class ChatRepository:
                 else:
                     session.add(ConversationStateModel(session_id=session_id, state_json=payload, updated_at=datetime.utcnow()))
                 await session.commit()
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 await session.rollback()
                 logger.error(f"Lỗi khi lưu trạng thái hội thoại session {session_id}: {e}")
 
@@ -177,7 +180,7 @@ class ChatRepository:
                 )
                 await session.commit()
                 logger.info(f"[ChatRepo] Đã xóa session '{session_id}'.")
-            except Exception as e:
+            except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 await session.rollback()
                 logger.error(f"Lỗi khi xóa session {session_id}: {e}")
 

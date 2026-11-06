@@ -11,7 +11,8 @@ import {
   BellRing,
   PanelLeftClose,
   PanelLeftOpen,
-  Database
+  Database,
+  Inbox
 } from 'lucide-react';
 import { NavigationTab } from '../types.ts';
 import { BrandLogo } from './BrandLogo.tsx';
@@ -23,6 +24,7 @@ export type HelpKind = 'feedback' | 'support';
 interface SidebarProps {
   currentTab: NavigationTab;
   alertCount: number; // số sản phẩm đã đạt giá mong muốn
+  feedbackCount: number; // quản trị viên: số góp ý / yêu cầu hỗ trợ mới
   onTabChange: (tab: NavigationTab) => void;
   isAdmin: boolean;
   onOpenPreferences: () => void; // Cài đặt người dùng: giao diện, ngôn ngữ
@@ -84,6 +86,7 @@ const SidebarButton: React.FC<{
 export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   alertCount,
+  feedbackCount,
   onTabChange,
   isAdmin,
   onOpenPreferences,
@@ -126,6 +129,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => onTabChange(item.id)}
           />
         ))}
+        {isAdmin && (
+          <SidebarButton
+            icon={Inbox}
+            label={t('Góp ý & hỗ trợ')}
+            collapsed={collapsed}
+            active={currentTab === 'feedback'}
+            badge={feedbackCount}
+            onClick={() => onTabChange('feedback')}
+          />
+        )}
       </nav>
 
       {/* Trợ giúp & hỗ trợ */}

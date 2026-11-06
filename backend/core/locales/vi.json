@@ -1,0 +1,38 @@
+{
+  "clarify.budget_question": "Bạn dự định chi khoảng bao nhiêu cho {entity}?",
+  "clarify.default_entity": "sản phẩm",
+  "clarify.purpose_hint": " Nếu được, bạn cho biết thêm mục đích sử dụng chính nhé.",
+  "clarify.context_hint": "Biết ngân sách giúp trợ lý lọc đúng phân khúc và xếp hạng chính xác hơn trước khi quét các sàn.",
+
+  "suggest.link": [
+    "So sánh {name} với các đối thủ cùng phân khúc",
+    "Chính sách bảo hành và đổi trả của link này ra sao?",
+    "Có mã giảm giá hoặc freeship nào áp dụng được thêm không?"
+  ],
+  "suggest.pair": [
+    "So sánh chi tiết {a} và {b}",
+    "Con nào pin trâu và dùng bền hơn?",
+    "Có chính sách bảo hành hoặc trả góp 0% không?"
+  ],
+  "suggest.single": [
+    "Thời lượng pin thực tế của {name} là mấy tiếng?",
+    "Chính sách bảo hành tại {platform} thế nào?",
+    "Có mẫu nào khác cùng tầm giá để so sánh không?"
+  ],
+  "suggest.phone_words": ["iphone", "điện thoại"],
+  "suggest.phones": [
+    "Top điện thoại pin trâu tầm giá 15 - 20 triệu",
+    "Nên mua iPhone 15 hay cố lên iPhone 16?",
+    "Điện thoại chụp ảnh đẹp nhất phân khúc"
+  ],
+  "suggest.laptops": [
+    "Laptop văn phòng mỏng nhẹ dưới 15 triệu",
+    "Laptop gaming tầm trung tốt nhất hiện nay",
+    "Nên chọn MacBook hay laptop Windows?"
+  ],
+  "suggest.default": [
+    "Tư vấn điện thoại tốt nhất tầm giá 10 - 15 triệu",
+    "Gợi ý laptop văn phòng mỏng nhẹ pin trâu",
+    "Săn deal công nghệ giảm giá sâu hôm nay"
+  ]
+}

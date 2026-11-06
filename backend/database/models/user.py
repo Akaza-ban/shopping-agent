@@ -24,6 +24,17 @@ class AuthTokenModel(Base):
     expires_at = Column(DateTime, nullable=False, index=True)
 
 
+class PasswordResetModel(Base):
+    """Link đặt lại mật khẩu: chỉ lưu SHA-256 của token, dùng một lần, có hạn."""
+    __tablename__ = "password_resets"
+
+    token_hash = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+
+
 class UserDataModel(Base):
 
     __tablename__ = "user_data"

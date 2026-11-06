@@ -6,7 +6,7 @@ import asyncio
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from database.connection import init_db, close_db
-from services.catalog.batch_crawler import batch_crawler_service
+from jobs.batch_crawler import batch_crawler_service
 
 async def main():
     print("=" * 65)

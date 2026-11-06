@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from services.catalog.platforms import get_platform
+from integrations.platforms.errors import CRAWL_ERRORS
+from integrations.platforms import get_platform
 
 logger = logging.getLogger("product_enricher")
 
@@ -39,7 +40,7 @@ class ProductEnricher:
             return None
         try:
             detail = await platform.fetch_detail(client, product)
-        except Exception as e:
+        except CRAWL_ERRORS as e:
             logger.warning(f"[Enricher] Không lấy được chi tiết '{product.get('name', '')[:50]}': {e}")
             return None
         if detail is not None:
@@ -47,14 +48,14 @@ class ProductEnricher:
         return detail
 
     async def fetch_current_price(self, product: Dict[str, Any]) -> Optional[Dict[str, float]]:
-        """Giá bán hiện tại của một sản phẩm, đọc trực tiếp từ sàn (không qua cache), dùng cho theo dõi giá:"""
+        """Giá bán hiện tại đọc trực tiếp từ sàn (không qua cache), dùng cho theo dõi giá; None nếu không đọc được."""
         platform = get_platform(product.get("platform"))
         if not platform:
             return None
         try:
             async with httpx.AsyncClient(follow_redirects=True, timeout=self.timeout) as client:
                 return await platform.fetch_price(client, product)
-        except Exception as e:
+        except CRAWL_ERRORS as e:
             logger.warning(f"[Enricher] Không đọc được giá hiện tại '{product.get('name', '')[:50]}': {e}")
         return None
 
@@ -94,7 +95,7 @@ class ProductEnricher:
         max_items: int = 10,
         budget_seconds: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
-        """Bồi đắp tối đa `max_items` sản phẩm đầu danh sách;"""
+        """Thêm thông số, bảo hành, đánh giá từ trang chi tiết cho `max_items` sản phẩm đầu; hết `budget_seconds` thì trả phần đã xong, phần còn lại tải ở nền."""
         if not products:
             return products
         targets = [

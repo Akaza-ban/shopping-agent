@@ -6,6 +6,7 @@ from statistics import median
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from services.catalog.categories import categorize
+from shared.product_key import product_key
 from services.pricing.category_floors import category_floors
 
 logger = logging.getLogger("price_guardrails")
@@ -78,9 +79,6 @@ def same_price(a: Optional[float], b: Optional[float]) -> bool:
     return bool(a) and bool(b) and abs(a - b) <= SAME_PRICE_TOLERANCE * max(a, b)
 
 
-def product_key(name: str) -> str:
-    """Khóa so khớp cùng sản phẩm giữa các bản ghi (tên viết thường, gộp khoảng trắng)."""
-    return re.sub(r"\s+", " ", (name or "").strip().lower())
 
 
 def check_against_references(price: float, references: Iterable[float]) -> PriceVerdict:

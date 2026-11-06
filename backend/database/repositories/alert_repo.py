@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, delete
 from ..connection import async_session
+from ..errors import raises_database_error
 from ..models import AlertModel, PriceCheckModel
 
 logger = logging.getLogger("alert_repo")
@@ -35,6 +36,7 @@ def alert_to_dict(a: AlertModel) -> Dict[str, Any]:
     }
 
 
+@raises_database_error
 class AlertRepository:
 
     def __init__(self, session_factory=async_session):
@@ -92,6 +94,7 @@ def check_to_dict(c: PriceCheckModel) -> Dict[str, Any]:
     }
 
 
+@raises_database_error
 class PriceCheckRepository:
 
     def __init__(self, session_factory=async_session, keep_per_alert: int = 100):

@@ -1,53 +1,25 @@
-import asyncio
-from typing import Optional, List, Dict, Any
+"""API quản lý crawler. Logic nằm ở application/crawler.py."""
+from typing import Optional
+
 from fastapi import APIRouter, BackgroundTasks, Depends
-from pydantic import BaseModel, Field
-from services.catalog.batch_crawler import batch_crawler_service
+
+import application.crawler as crawler
 from database.models import UserModel
-from src.auth import require_user, require_admin
+from src.dependencies.auth import require_admin, require_user
+from src.schemas.crawler import TriggerCrawlRequest
 
 router = APIRouter(prefix="/crawler", tags=["Crawler Management"])
 
-class TriggerCrawlRequest(BaseModel):
-    limit_per_query: int = Field(default=3, ge=1, le=10, description="Số sản phẩm lấy tối đa cho mỗi từ khóa")
-    force_refresh: bool = Field(default=True, description="Bỏ qua cache, cào dữ liệu mới nhất")
-    background: bool = Field(default=True, description="Chạy ngầm không làm đơ Swagger/API")
 
 @router.get("/status", summary="Xem trạng thái hoạt động của Crawler và CSDL")
 async def get_crawler_status(user: UserModel = Depends(require_user)):
-    """Trả về thông tin tổng quan:"""
-    return await batch_crawler_service.get_crawler_status()
+    return await crawler.status()
+
 
 @router.post("/trigger", summary="Kích hoạt thu thập dữ liệu hàng loạt")
-async def trigger_crawl(
-    background_tasks: BackgroundTasks,
-    payload: Optional[TriggerCrawlRequest] = None,
-    user: UserModel = Depends(require_admin)
-):
+async def trigger_crawl(background_tasks: BackgroundTasks, payload: Optional[TriggerCrawlRequest] = None,
+                        user: UserModel = Depends(require_admin)):
     """Chủ động kích hoạt đợt cào dữ liệu cho danh mục HOT."""
     req = payload or TriggerCrawlRequest()
-    if batch_crawler_service.is_running:
-        return {
-            "status": "already_running",
-            "message": "Crawler is currently running in background. Please check /api/v1/crawler/status."
-        }
-
-    if req.background:
-        background_tasks.add_task(
-            batch_crawler_service.run_batch_crawl,
-            limit_per_query=req.limit_per_query,
-            force_refresh=req.force_refresh
-        )
-        return {
-            "status": "started",
-            "message": "Batch crawl started in background. You can track progress via GET /api/v1/crawler/status.",
-            "limit_per_query": req.limit_per_query
-        }
-    else:
-        # Chạy đồng bộ (đợi kết quả trả về)
-        stats = await batch_crawler_service.run_batch_crawl(
-            limit_per_query=req.limit_per_query,
-            force_refresh=req.force_refresh
-        )
-        return stats
-
+    return await crawler.trigger(req.limit_per_query, req.force_refresh, req.background,
+                                 schedule=background_tasks.add_task)

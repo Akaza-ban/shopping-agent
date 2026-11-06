@@ -4,7 +4,9 @@ from typing import Any, Dict, List
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.config import get_chat_model
+from integrations.llm import ask_llm
+from shared.exceptions import LLMResponseError
+from integrations.llm import get_chat_model
 
 MAX_CONTENT_CHARS = 20000
 
@@ -26,23 +28,26 @@ _LIST_FIELDS = ("return_conditions", "exceptions", "evidence")
 
 
 def parse_terms(raw: str) -> Dict[str, Any]:
-    """JSON của LLM -> dict điều khoản đúng kiểu; thiếu hoặc sai kiểu thì báo lỗi."""
+    """JSON của LLM -> dict điều khoản đúng kiểu; thiếu hoặc sai kiểu -> LLMResponseError."""
     text = raw.strip()
     m = re.search(r"\{.*\}", text, re.S)
     if not m:
-        raise ValueError("LLM không trả về JSON")
-    data = json.loads(m.group(0))
-    out: Dict[str, Any] = {
-        "return_window_days": int(data.get("return_window_days") or 0),
-        "free_return": bool(data.get("free_return")),
-    }
+        raise LLMResponseError("LLM không trả về JSON")
+    try:
+        data = json.loads(m.group(0))
+        out: Dict[str, Any] = {
+            "return_window_days": int(data.get("return_window_days") or 0),
+            "free_return": bool(data.get("free_return")),
+        }
+    except (ValueError, TypeError, AttributeError) as e:
+        raise LLMResponseError(f"Điều khoản LLM trả về không đúng định dạng: {e}") from e
     for f in _STR_FIELDS:
         out[f] = str(data.get(f) or "").strip()
     for f in _LIST_FIELDS:
         value = data.get(f) or []
         out[f] = [str(x).strip() for x in (value if isinstance(value, list) else [value]) if str(x).strip()]
     if not 0 <= out["return_window_days"] <= 400:
-        raise ValueError(f"số ngày đổi trả bất thường: {out['return_window_days']}")
+        raise LLMResponseError(f"số ngày đổi trả bất thường: {out['return_window_days']}")
     return out
 
 
@@ -57,13 +62,10 @@ def unsupported_numbers(terms: Dict[str, Any], content: str) -> List[str]:
 
 
 async def extract_terms(platform_name: str, content: str) -> Dict[str, Any]:
-    model = get_chat_model(temperature=0.0)
-    if model is None:
-        raise RuntimeError("chưa cấu hình LLM")
-    response = await model.ainvoke([
+    raw = await ask_llm(get_chat_model(temperature=0.0), [
         SystemMessage(content=EXTRACT_PROMPT),
         HumanMessage(content=f"Nhà bán lẻ: {platform_name}\n\nNội dung trang:\n{content[:MAX_CONTENT_CHARS]}"),
     ])
-    terms = parse_terms(str(getattr(response, "content", response)))
+    terms = parse_terms(raw)
     terms["unsupported_numbers"] = unsupported_numbers(terms, content)
     return terms

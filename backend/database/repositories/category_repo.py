@@ -5,9 +5,11 @@ from typing import Any, Dict, List
 from sqlalchemy import select
 
 from ..connection import async_session
+from ..errors import raises_database_error
 from ..models import CategoryMappingModel
 
 
+@raises_database_error
 class CategoryMappingRepository:
     """Bảng quy đổi danh mục của sàn -> ngành hàng chuẩn."""
 

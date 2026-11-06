@@ -13,6 +13,7 @@ if sys.platform == "win32":
 from database.connection import close_db, init_db  # noqa: E402
 from database.repositories import policy_repository  # noqa: E402
 from services.policy.extractor import extract_terms  # noqa: E402
+from shared.exceptions import LLMError  # noqa: E402
 
 DRAFT = os.path.join(BACKEND_DIR, "docs", "policy_terms_draft.json")
 TERM_KEYS = ("return_window_days", "free_return", "return_conditions", "return_shipping_fee", "refund_time",
@@ -24,7 +25,7 @@ async def draft():
     for doc in await policy_repository.official_documents():
         try:
             terms = await extract_terms(doc["platformName"], doc["content"])
-        except Exception as e:
+        except LLMError as e:
             print(f"[{doc['platformId']}] LỖI: {e}")
             continue
         drafts.append({"platform_id": doc["platformId"], "document_id": doc["id"], "source_url": doc["url"],

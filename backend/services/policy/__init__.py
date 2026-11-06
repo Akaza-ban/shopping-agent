@@ -1,1 +1,1 @@
-"""Chính sách đổi trả, bảo hành: tải trang gốc, rút điều khoản, tra cứu."""
+"""Chính sách đổi trả, bảo hành: rút điều khoản bằng LLM (extractor), dữ liệu mặc định (seed). Tra cứu: application/policies.py."""

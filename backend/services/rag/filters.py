@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from services.catalog.categories import canonical_code
+from shared.categories import canonical_code
 
 Meta = Dict[str, Any]
 

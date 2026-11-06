@@ -1,4 +1,4 @@
-export type NavigationTab = 'dashboard' | 'search' | 'policy' | 'saved' | 'alerts' | 'activity';
+export type NavigationTab = 'dashboard' | 'search' | 'policy' | 'saved' | 'alerts' | 'activity' | 'feedback';
 
 // Yêu cầu từ màn khác gửi sang khung chat cho agent xử lý
 export type ChatRequest =
@@ -265,3 +265,24 @@ export interface CrawlerStatus {
   lastRunStats: Record<string, unknown> | null;
   hotCatalogCount: number;
 }
+
+// Góp ý / yêu cầu hỗ trợ gửi cho quản trị viên
+export type FeedbackKind = 'feedback' | 'support';
+export type FeedbackStatus = 'new' | 'in_progress' | 'resolved';
+
+export interface FeedbackItem {
+  id: string;
+  kind: FeedbackKind;
+  topic: string;
+  content: string;
+  contact: string;
+  userId: string | null;
+  userEmail: string;
+  userName: string;
+  status: FeedbackStatus;
+  adminNote: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export type FeedbackCounts = Record<FeedbackStatus, number>;

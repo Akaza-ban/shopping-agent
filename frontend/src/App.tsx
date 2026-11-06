@@ -12,7 +12,8 @@ import { SettingsModal } from './components/SettingsModal.tsx';
 import { PriceAlertsView } from './components/PriceAlertsView.tsx';
 import { TrackPriceModal } from './components/TrackPriceModal.tsx';
 import { PLATFORMS, getPlatformName, setPolicyCache } from './services/shoppingService.ts';
-import { listPolicies } from './services/agentApi.ts';
+import { listFeedback, listPolicies, submitFeedback } from './services/agentApi.ts';
+import { FeedbackInboxView } from './components/FeedbackInboxView.tsx';
 import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './hooks/useAuth.tsx';
 import { PreferencesProvider, usePreferences } from './hooks/usePreferences.tsx';
@@ -20,6 +21,7 @@ import { I18nProvider, currentLocale, t, useI18n } from './i18n/index.tsx';
 import { PreferencesModal } from './components/PreferencesModal.tsx';
 import { useSyncedState } from './hooks/useSyncedState.ts';
 import { AuthView } from './components/AuthView.tsx';
+import { ResetPasswordView } from './components/ResetPasswordView.tsx';
 import { AccountModal } from './components/AccountModal.tsx';
 import { usePriceAlerts } from './hooks/usePriceAlerts.ts';
 
@@ -51,8 +53,33 @@ function LocalizedApp() {
 
 // Chưa đăng nhập -> màn đăng nhập/đăng ký; đã đăng nhập -> ứng dụng, dựng lại theo từng tài khoản
 function AuthGate() {
-  const { status, user } = useAuth();
+  const { status, user, logout } = useAuth();
   const { t } = useI18n();
+  // Mở từ link trong email đặt lại mật khẩu (?reset_token=...)
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get('reset_token'));
+  const [notice, setNotice] = useState('');
+
+  const leaveReset = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('reset_token');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    setResetToken(null);
+  };
+
+  if (resetToken) {
+    return (
+      <ResetPasswordView
+        token={resetToken}
+        onCancel={leaveReset}
+        onDone={() => {
+          leaveReset();
+          setNotice(t('Đã đặt mật khẩu mới. Vui lòng đăng nhập lại.'));
+          // Server đã thu hồi mọi phiên của tài khoản -> đăng xuất cả phiên trên trình duyệt này
+          if (status === 'authenticated') void logout();
+        }}
+      />
+    );
+  }
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-canvas flex items-center justify-center text-stone-500 text-sm gap-2">
@@ -60,7 +87,7 @@ function AuthGate() {
       </div>
     );
   }
-  if (status === 'anonymous' || !user) return <AuthView />;
+  if (status === 'anonymous' || !user) return <AuthView notice={notice} />;
   return <ShoppingApp key={user.id} userId={user.id} isAdmin={user.role === 'admin'} />;
 }
 
@@ -86,6 +113,15 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
       })
       .catch(() => undefined);
   }, []);
+  // Quản trị viên: số góp ý / yêu cầu hỗ trợ mới (huy hiệu trên thanh bên), làm mới mỗi phút
+  const [newFeedbackCount, setNewFeedbackCount] = useState(0);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const refresh = () => listFeedback('new').then(res => setNewFeedbackCount(res.counts.new)).catch(() => undefined);
+    void refresh();
+    const timer = window.setInterval(refresh, 60_000);
+    return () => window.clearInterval(timer);
+  }, [isAdmin]);
   // Dữ liệu cá nhân lưu theo tài khoản (đồng bộ với máy chủ, dùng được trên nhiều thiết bị)
   const [history, setHistory] = useSyncedState<SearchRecord[]>(userId, 'search-history', []);
   const [saved, setSaved] = useSyncedState<SavedProduct[]>(userId, 'saved-products', []);
@@ -189,18 +225,23 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     });
   };
 
-  const handleHelpSubmit = (kind: HelpKind, content: string, contact: string) =>
+  // Gửi cho quản trị viên; gửi được mới ghi vào Lịch sử hoạt động (lỗi để form hiện thông báo)
+  const handleHelpSubmit = async (kind: HelpKind, topic: string, content: string, contact: string) => {
+    await submitFeedback(kind, topic, content, contact);
+    const text = `[${t(topic)}] ${content}`;
     logActivity({
       type: 'support',
       title: kind === 'feedback' ? t('Gửi góp ý') : t('Yêu cầu hỗ trợ'),
-      detail: contact ? `${content} · ${t('Liên hệ: {contact}', { contact })}` : content
+      detail: contact ? `${text} · ${t('Liên hệ: {contact}', { contact })}` : text
     });
+  };
 
   return (
     <div className="min-h-screen flex text-stone-900 bg-canvas">
       <Sidebar
         currentTab={currentTab}
         alertCount={triggeredCount}
+        feedbackCount={newFeedbackCount}
         onTabChange={setCurrentTab}
         isAdmin={isAdmin}
         onOpenPreferences={() => setIsPreferencesOpen(true)}
@@ -289,6 +330,10 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
               onNavigate={setCurrentTab}
               onClear={() => setActivities([])}
             />
+          )}
+
+          {currentTab === 'feedback' && isAdmin && (
+            <FeedbackInboxView onCountsChange={counts => setNewFeedbackCount(counts.new)} />
           )}
         </main>
       </div>

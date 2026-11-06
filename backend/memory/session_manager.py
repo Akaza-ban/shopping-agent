@@ -132,7 +132,7 @@ class SessionMemoryManager:
             pass
 
     def format_chat_history_for_prompt(self, session_id: str, max_turns: int = 3) -> str:
-        
+        """Vài lượt hội thoại gần nhất dạng văn bản cho prompt (tin nhắn dài của AI được rút gọn)."""
         messages = self.get_messages(session_id)
         if not messages:
             return ""
@@ -142,16 +142,16 @@ class SessionMemoryManager:
         history_lines = []
         for msg in recent_msgs:
             sender_label = "Khách hàng" if msg.sender == "user" else "ShopAI Copilot"
-            # Rút ngắn tin nhắn quá dài của AI để tiết kiệm token
+            # Rút ngắn tin nhắn dài của AI nhưng giữ cả đoạn cuối: lời đề nghị / câu hỏi lại thường nằm ở cuối
             txt = msg.text
-            if msg.sender == "ai" and len(txt) > 250:
-                txt = txt[:250] + "..."
+            if msg.sender == "ai" and len(txt) > 450:
+                txt = f"{txt[:200]} [...] {txt[-250:]}"
             history_lines.append(f"- {sender_label}: {txt}")
 
         return "\n".join(history_lines)
 
     def format_previous_products_for_prompt(self, session_id: str, max_items: int = 3) -> str:
-        
+        """Các sản phẩm đã đề xuất ở lượt trước (tên, giá, sàn, vài thông số) cho prompt."""
         last_prods = self.get_last_products(session_id)
         if not last_prods:
             return ""

@@ -7,8 +7,11 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from services.catalog.category_codes import CANONICAL, LABELS
-from src.config import get_chat_model
+from shared.categories import CANONICAL, LABELS, canonical_code
+from integrations.llm import ask_llm
+from integrations.platforms import get_platform, platform_for_url
+from shared.exceptions import DatabaseError, LLMError
+from integrations.llm import get_chat_model
 
 logger = logging.getLogger("category_resolver")
 
@@ -60,7 +63,6 @@ class CategoryResolver:
     @staticmethod
     def source_of(product: Mapping[str, Any]) -> Optional[Tuple[str, str, str]]:
         """(khóa, mô tả, mã sàn) của danh mục sản phẩm theo sàn bán; None nếu sàn không cho biết danh mục."""
-        from services.catalog.platforms import get_platform, platform_for_url
         platform = platform_for_url(product.get("externalUrl")) or get_platform(product.get("platform"))
         if platform is None:
             return None
@@ -82,7 +84,7 @@ class CategoryResolver:
         """Nạp bảng quy đổi đã lưu (gọi lúc khởi động; resolve() tự gọi nếu chưa nạp)."""
         try:
             rows = await self.repository.all()
-        except Exception as e:
+        except DatabaseError as e:
             logger.warning(f"Không nạp được bảng quy đổi danh mục: {e}")
             return
         self.remember({r["source_key"]: (r["category"], r["is_accessory"], r.get("noun") or "") for r in rows})
@@ -116,15 +118,14 @@ class CategoryResolver:
         codes = "\n".join(f"- {code}: {label}" for code, label in LABELS.items())
         payload = [{"key": i["key"], "label": i["label"], "samples": i["samples"]} for i in items]
         try:
-            response = await asyncio.wait_for(model.ainvoke([
+            raw = await ask_llm(model, [
                 SystemMessage(content=CLASSIFY_PROMPT.format(codes=codes)),
                 HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
-            ]), LLM_TIMEOUT_SECONDS)
-            raw = str(getattr(response, "content", response))
-            decided = parse_classification(raw)
-        except Exception as e:
+            ], timeout=LLM_TIMEOUT_SECONDS)
+        except LLMError as e:
             logger.warning(f"LLM quy đổi danh mục lỗi, để chưa rõ ngành hàng: {e}")
             return
+        decided = parse_classification(raw)
         missing = [i["key"] for i in items if i["key"] not in decided]
         if missing:
             logger.warning(f"LLM không quy đổi được {len(missing)}/{len(items)} danh mục (sẽ hỏi lại lần sau): "
@@ -140,7 +141,7 @@ class CategoryResolver:
         if rows:
             try:
                 await self.repository.save(rows)
-            except Exception as e:
+            except DatabaseError as e:
                 logger.warning(f"Không lưu được quy đổi danh mục: {e}")
             logger.info(f"Đã quy đổi {len(rows)} danh mục mới: " + ", ".join(f"{r['key']} -> {r['category']}" for r in rows))
 
@@ -152,20 +153,24 @@ class CategoryResolver:
             return None
         names = [str(p.get("name") or "") for p in products]
         try:
-            response = await asyncio.wait_for(model.ainvoke([
+            raw = await ask_llm(model, [
                 SystemMessage(content=SAME_KIND_PROMPT),
                 HumanMessage(content=json.dumps(names, ensure_ascii=False)),
-            ]), LLM_TIMEOUT_SECONDS)
-            m = re.search(r"\{.*\}", str(getattr(response, "content", response)), re.S)
-            value = json.loads(m.group(0)).get("same_kind") if m else None
-            return value if isinstance(value, bool) else None
-        except Exception as e:
+            ], timeout=LLM_TIMEOUT_SECONDS)
+        except LLMError as e:
             logger.warning(f"LLM kiểm tra cùng loại lỗi: {e}")
             return None
+        m = re.search(r"\{.*\}", raw, re.S)
+        try:
+            data = json.loads(m.group(0)) if m else None
+        except ValueError:
+            data = None
+        value = data.get("same_kind") if isinstance(data, dict) else None
+        return value if isinstance(value, bool) else None
 
 
 def parse_classification(raw: str) -> Dict[str, CategoryMapping]:
-
+    """Câu trả lời của LLM (mảng hoặc đối tượng JSON) -> {khóa danh mục: CategoryMapping}; sai định dạng -> {}."""
     m = re.search(r"[\[{].*[\]}]", raw or "", re.S)
     if not m:
         return {}
@@ -190,7 +195,6 @@ _BY_LABEL = {label.lower(): code for code, label in LABELS.items()}
 
 def _to_code(value: Any) -> Optional[str]:
     """Mã ngành hàng; model đôi khi trả phần mô tả ("điện thoại / máy tính bảng") hoặc số ít ("laptop")."""
-    from services.catalog.categories import canonical_code
     text = str(value or "").strip()
     if text in CANONICAL:
         return text

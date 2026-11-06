@@ -89,7 +89,7 @@ async def sync_sqlite_to_chroma() -> int:
             try:
                 if p.specs and (p.specs.startswith("{") or p.specs.startswith("[")):
                     specs_parsed = json.loads(p.specs)
-            except Exception:
+            except ValueError:
                 specs_parsed = p.specs
 
             product_dicts.append({
@@ -154,7 +154,7 @@ async def crawl_and_seed_chroma(catalog: list, limit_per_query: int = 5) -> int:
             else:
                 print("-> 0 sản phẩm (Bỏ qua)")
 
-        except Exception as e:
+        except Exception as e:  # chốt chặn: một từ khóa lỗi không được dừng cả đợt nạp
             print(f"-> Lỗi: {e}")
 
         # Nghỉ nhẹ 1.2 giây giữa các request để tránh bị sàn chặn IP

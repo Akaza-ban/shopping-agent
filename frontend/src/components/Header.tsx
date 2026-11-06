@@ -20,6 +20,7 @@ const TAB_TITLES: Record<NavigationTab, string> = {
   saved: msg('Sản phẩm đã lưu'),
   alerts: msg('Theo dõi giá'),
   activity: msg('Lịch sử hoạt động'),
+  feedback: msg('Góp ý & hỗ trợ'),
 };
 
 const initials = (name: string) =>

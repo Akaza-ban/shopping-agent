@@ -11,8 +11,8 @@ from sqlalchemy import text  # noqa: E402
 
 from database.connection import close_db, engine, init_db  # noqa: E402
 from database.repositories import policy_repository  # noqa: E402
-from services.policy.fetcher import fetch_all  # noqa: E402
-from services.policy.service import ensure_seeded  # noqa: E402
+from integrations.policy_pages import fetch_all  # noqa: E402
+from application.policies import ensure_seeded  # noqa: E402
 
 
 async def main(platform_ids):

@@ -7,5 +7,5 @@ class BaseTool(ABC):
 
     @abstractmethod
     async def run(self, **kwargs) -> Dict[str, Any]:
-        """Thực thi tool bất đồng bộ."""
+        """Thực thi tool"""
         pass

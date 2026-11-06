@@ -1,8 +1,12 @@
 import json
 import logging
 from typing import List, Dict, Any, Tuple, Optional
+
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.config import settings, get_chat_model
+
+from integrations.llm import get_chat_model
+from integrations.llm import ask_llm, parse_llm_json
+from shared.exceptions import LLMError, LLMResponseError
 
 logger = logging.getLogger("semantic_filter")
 
@@ -29,7 +33,12 @@ Nhiệm vụ của bạn là phân tích ngữ nghĩa sâu sắc để xác đ�
    - Chỉ phán định LOẠI sản phẩm (máy chính hay phụ kiện/hàng giả/không liên quan).
    - KHÔNG được loại một sản phẩm chính chỉ vì tên không ghi rõ thông số (GPU, CPU, dung lượng...). Việc xác minh thông số do bước khác đảm nhiệm.
 
-5. THẨM ĐỊNH SỰ TỒN TẠI TRÊN THỊ TRƯỜNG (MARKET AVAILABILITY CHECK):
+5. KHI NGƯỜI DÙNG CHỦ ĐÍCH TÌM PHỤ KIỆN / VẬT TƯ (yêu cầu ghi rõ "chủ đích tìm phụ kiện"):
+   - Đối tượng chính lúc này CHÍNH LÀ loại phụ kiện đó (VD tìm "lót chuột" -> tấm lót chuột là đối tượng chính).
+   - GIỮ sản phẩm đúng là loại phụ kiện người dùng tìm; LOẠI BỎ thiết bị chính và mọi mặt hàng khác loại dù tên có nhắc tới từ khóa
+     (VD tìm "lót chuột" thì loại "USB Bluetooth ... - miếng lót chuột", chuột máy tính, bàn phím).
+
+6. THẨM ĐỊNH SỰ TỒN TẠI TRÊN THỊ TRƯỜNG (MARKET AVAILABILITY CHECK):
    - Nếu sản phẩm chưa từng được thương mại hóa chính thức (ví dụ: model tương lai chưa ra mắt) và toàn bộ kết quả trên sàn chỉ là hàng phụ kiện ăn theo -> LOẠI BỎ TOÀN BỘ và đánh dấu "is_target_available_on_market": false.
 
 === ĐỊNH DẠNG ĐẦU RA (STRICT JSON ONLY) ===
@@ -38,18 +47,10 @@ BẮT BUỘC trả về JSON strictly theo định dạng sau (không viết b�
 Chỉ trả về đúng hai trường trên, không giải thích (câu trả lời càng ngắn càng tốt để giảm độ trễ)."""
 
 
-def _parse_json(raw: str) -> Dict[str, Any]:
-    """JSON trong câu trả lời của LLM (bỏ khối ```json ... ``` nếu có)."""
-    text = raw.strip()
-    if "```json" in text:
-        text = text.split("```json")[1].split("```")[0].strip()
-    elif "```" in text:
-        text = text.split("```")[1].split("```")[0].strip()
-    return json.loads(text)
-
-
-def _user_prompt(query: str, products: List[Dict[str, Any]]) -> str:
+def _user_prompt(query: str, products: List[Dict[str, Any]], accessory_search: bool = False) -> str:
     """Chỉ gửi id, tên, giá, sàn (tiết kiệm token và giảm độ trễ)."""
+    intent = ("\nNgười dùng CHỦ ĐÍCH tìm phụ kiện / vật tư này (quy tắc 5): giữ đúng loại phụ kiện đó, loại mặt hàng khác loại."
+              if accessory_search else "")
     compact_items = [
         {
             "id": str(p.get("id")),
@@ -59,7 +60,7 @@ def _user_prompt(query: str, products: List[Dict[str, Any]]) -> str:
         }
         for p in products
     ]
-    return f"""Yêu cầu tìm kiếm của người dùng: "{query}"
+    return f"""Yêu cầu tìm kiếm của người dùng: "{query}"{intent}
 
 Danh sách sản phẩm cào được từ sàn TMĐT:
 {json.dumps(compact_items, ensure_ascii=False, separators=(",", ":"))}
@@ -75,31 +76,37 @@ class LLMSemanticFilter:
         products: List[Dict[str, Any]],
         criteria: Optional[Any] = None
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """Chỉ giữ máy chính đúng thứ người dùng tìm (bỏ phụ kiện ăn theo, hàng mô hình); LLM lỗi thì giữ nguyên."""
+        """
+        Chỉ giữ đúng thứ người dùng tìm: máy chính (bỏ phụ kiện ăn theo, hàng mô hình), hoặc đúng loại phụ kiện
+        khi người dùng chủ đích tìm phụ kiện (bỏ hàng khác loại); LLM lỗi thì giữ nguyên.
+        """
         if not products:
             return [], {"is_target_available_on_market": False, "explanation": "Không có sản phẩm đầu vào"}
-        if criteria and getattr(criteria, "is_accessory", False):
-            logger.info(f"ℹ [Semantic Filter] Người dùng chủ đích tìm phụ kiện cho '{query}', giữ nguyên 100% kết quả.")
-            return products, {"is_target_available_on_market": True, "is_accessory_search": True}
+        accessory_search = bool(criteria and getattr(criteria, "is_accessory", False))
 
         chat_model = get_chat_model(temperature=0.0, fast=True)
         if not chat_model:
             logger.warning("Không khởi tạo được Chat Model, tạm thời giữ nguyên danh sách cào.")
             return products, {"is_target_available_on_market": True, "used_llm": False}
         try:
-            return await self._judge(chat_model, query, products)
-        except Exception as err:
+            kept, meta = await self._judge(chat_model, query, products, accessory_search)
+            return kept, {**meta, "is_accessory_search": accessory_search}
+        except LLMError as err:
             logger.warning(f"[LLM Ontology Filter Error]: {err}. Giữ nguyên danh sách an toàn.")
             return products, {"is_target_available_on_market": True, "used_llm": False, "error": str(err)}
 
     @staticmethod
-    async def _judge(chat_model, query: str, products: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        response = await chat_model.ainvoke([
+    async def _judge(chat_model, query: str, products: List[Dict[str, Any]],
+                     accessory_search: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        raw = await ask_llm(chat_model, [
             SystemMessage(content=PRODUCT_ONTOLOGY_SYSTEM_PROMPT),
-            HumanMessage(content=_user_prompt(query, products)),
+            HumanMessage(content=_user_prompt(query, products, accessory_search)),
         ])
-        parsed = _parse_json(response.content if hasattr(response, "content") else str(response))
-        matched_ids = set(parsed.get("matched_product_ids", []))
+        parsed = parse_llm_json(raw)
+        ids = parsed.get("matched_product_ids", [])
+        if not isinstance(ids, list):
+            raise LLMResponseError(f"matched_product_ids phải là danh sách, nhận được {type(ids).__name__}")
+        matched_ids = {str(i) for i in ids}
         is_available = bool(parsed.get("is_target_available_on_market", True))
         explanation = str(parsed.get("explanation", ""))
         final_products = [p for p in products if str(p.get("id")) in matched_ids]

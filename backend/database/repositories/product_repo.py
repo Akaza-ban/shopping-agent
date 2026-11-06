@@ -3,11 +3,15 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..connection import async_session
+from ..errors import raises_database_error
 from ..models import ProductModel, PriceHistoryModel, SearchCacheModel
-from services.catalog.platforms import get_platform
+from integrations.platforms import get_platform
+# Ngoại lệ có chủ đích của hướng phụ thuộc: ngành hàng lưu trong CSDL tính theo bảng quy đổi danh mục đã học
+from services.catalog.categories import categorize
+from shared.product_key import product_key
 
 logger = logging.getLogger("product_repo")
 
@@ -70,7 +74,6 @@ def _price_point(prod_id: str, prices: Tuple[float, float, int]) -> PriceHistory
 
 
 def _new_product(prod_id: str, item: Dict[str, Any], prices: Tuple[float, float, int]) -> ProductModel:
-    from services.catalog.categories import categorize  # tránh import vòng với services
     current, original, discount = prices
     now = datetime.utcnow()
     return ProductModel(
@@ -99,7 +102,6 @@ def _new_product(prod_id: str, item: Dict[str, Any], prices: Tuple[float, float,
 
 def _update_product(existing: ProductModel, item: Dict[str, Any], prices: Tuple[float, float, int]) -> None:
     """Ghi đè giá; các trường khác chỉ ghi khi lần cào này có dữ liệu (không xóa dữ liệu cũ bằng giá trị rỗng)."""
-    from services.catalog.categories import categorize  # tránh import vòng với services
     existing.current_price, existing.original_price, existing.discount_percent = prices
     if item.get("rating"):
         existing.rating = float(item["rating"])
@@ -118,11 +120,27 @@ def _update_product(existing: ProductModel, item: Dict[str, Any], prices: Tuple[
     existing.updated_at = datetime.utcnow()
 
 
+@raises_database_error
 class ProductRepository:
     """Repository quản lý lưu trữ, truy xuất và theo dõi lịch sử giá của sản phẩm."""
 
     def __init__(self, session_factory=async_session):
         self.session_factory = session_factory
+
+    async def catalog_snapshot(self) -> Tuple[int, Optional[datetime]]:
+        """(số sản phẩm trong kho, thời điểm cập nhật gần nhất)."""
+        async with self.session_factory() as session:
+            total = (await session.execute(select(func.count()).select_from(ProductModel))).scalar() or 0
+            latest = (await session.execute(
+                select(ProductModel.updated_at).order_by(ProductModel.updated_at.desc()).limit(1)
+            )).scalar_one_or_none()
+        return total, latest
+
+    async def category_prices(self) -> List[Tuple[str, float]]:
+        """(ngành hàng, giá hiện tại) của mọi sản phẩm trong kho."""
+        async with self.session_factory() as session:
+            rows = (await session.execute(select(ProductModel.category, ProductModel.current_price))).all()
+        return [(category, price) for category, price in rows]
 
     async def upsert_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Thêm mới hoặc cập nhật sản phẩm; giá đổi thì ghi thêm một mốc vào price_history."""
@@ -177,7 +195,7 @@ class ProductRepository:
 
             try:
                 product_ids: List[str] = json.loads(cache_entry.product_ids)
-            except Exception:
+            except (ValueError, TypeError):
                 return None
 
             if not product_ids:
@@ -268,7 +286,6 @@ class ProductRepository:
 
     async def get_reference_prices(self, names: List[str]) -> Dict[str, List[float]]:
         """Giá đã lưu của các bản ghi cùng tên, theo khóa `guardrails.product_key` (để phát hiện giá bất thường)."""
-        from services.pricing.guardrails import product_key
         names = list({n for n in names if n})
         if not names:
             return {}

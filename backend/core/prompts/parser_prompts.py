@@ -1,4 +1,4 @@
-from services.catalog.platforms import display_names
+from integrations.platforms import display_names
 
 LINK_PARSER_SYSTEM_PROMPT = """Bạn là Chuyên gia trích xuất thông tin sản phẩm (Product Link Parser).
 Dựa trên nội dung web hoặc link được cung cấp từ các sàn TMĐT ({PLATFORM_NAMES}...), bạn hãy trích xuất các trường thông tin:

@@ -1,5 +1,11 @@
+import re
 from typing import List, Optional, Dict, Any, Literal, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Trường mô tả nhu cầu của tiêu chí (không phải thông số sản phẩm) và các phần trong tên của chúng
+_DESCRIPTIVE_FIELDS = ("usage_purpose", "priority", "brand_tier", "brands", "suggested_brands", "category")
+_USAGE_KEY_PARTS = set("usage_purpose".split("_"))
+_DESCRIPTIVE_KEY_PARTS = {part for name in _DESCRIPTIVE_FIELDS for part in name.split("_")}
 
 class UniversalSearchCriteria(BaseModel):
     """Tiêu chí tìm kiếm & phân tích tổng quát áp dụng cho mọi ngành hàng."""
@@ -26,6 +32,32 @@ class UniversalSearchCriteria(BaseModel):
     @classmethod
     def _null_is_not_accessory(cls, v):
         return False if v is None else v
+
+    @model_validator(mode="after")
+    def _descriptive_fields_are_not_specs(self):
+        """
+        LLM đôi khi ghi lại mục đích / ưu tiên vào `attributes` ({"usage": "gaming"}): đó không phải thông số kiểm chứng
+        được trên trang sản phẩm, để lại thì bộ xếp hạng coi là thông số bắt buộc và chấm sai.
+        Khóa trùng tên (hoặc một phần tên) trường mô tả của chính tiêu chí -> chuyển sang trường đó hoặc bỏ.
+        """
+        if not self.attributes:
+            return self
+        kept = {}
+        for key, value in self.attributes.items():
+            parts = set(re.split(r"[\W_]+", str(key).lower())) - {""}
+            if parts & _USAGE_KEY_PARTS:
+                if not self.usage_purpose and isinstance(value, str) and value.strip():
+                    self.usage_purpose = value.strip()
+                continue
+            if parts & _DESCRIPTIVE_KEY_PARTS:
+                if parts & {"brand", "brands"} and not self.brands and isinstance(value, str) and value.strip():
+                    self.brands = [value.strip()]
+                continue
+            if self.usage_purpose and str(value).strip().lower() == self.usage_purpose.strip().lower():
+                continue
+            kept[key] = value
+        self.attributes = kept
+        return self
 
     @field_validator("cleaned_query", mode="before")
     @classmethod
@@ -85,6 +117,8 @@ class AgentState(BaseModel):
     language: Literal["vi", "en"] = "vi"
     intent: Optional[Literal["smalltalk", "general_advice", "search_products", "compare_products", "parse_link", "find_deal", "out_of_scope"]] = None
     criteria: Optional[UniversalSearchCriteria] = None
+    # Router: câu hỏi có nói về sản phẩm đã đề xuất ở lượt trước không (None = không rõ, VD khi không có LLM)
+    about_previous_products: Optional[bool] = None
     messages: List[MessageItem] = Field(default_factory=list)
     found_products: List[ProductItemModel] = Field(default_factory=list)
     recommended_product: Optional[ProductItemModel] = None

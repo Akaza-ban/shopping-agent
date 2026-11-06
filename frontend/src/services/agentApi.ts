@@ -1,4 +1,4 @@
-import { BackendProduct, ClarificationQuestion, ComparisonResult, CrawlerStatus, PlatformPolicy, PolicyLookupResult, PolicyScenario, PriceAlert, PriceCheck, PricePoint, ProductItem } from '../types.ts';
+import { BackendProduct, ClarificationQuestion, ComparisonResult, CrawlerStatus, FeedbackCounts, FeedbackItem, FeedbackKind, FeedbackStatus, PlatformPolicy, PolicyLookupResult, PolicyScenario, PriceAlert, PriceCheck, PricePoint, ProductItem } from '../types.ts';
 import { currentLanguage, t } from '../i18n/index.tsx';
 
 // Kết nối backend FastAPI + LangGraph. Đổi địa chỉ bằng VITE_API_BASE_URL trong .env.
@@ -348,6 +348,19 @@ export async function logout(): Promise<void> {
 
 export const getMe = () => requestJson<AuthUser>('/api/auth/me');
 
+// Quên mật khẩu: server luôn trả cùng một thông báo dù email có đăng ký hay không
+export const forgotPassword = (email: string) =>
+  requestJson<{ ok: boolean; message: string }>('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+
+export const checkResetLink = (token: string) =>
+  requestJson<{ valid: boolean; email: string | null }>(`/api/auth/reset-password/check?token=${encodeURIComponent(token)}`);
+
+export const resetPassword = (token: string, newPassword: string) =>
+  requestJson<{ ok: boolean }>('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+
 export const updateProfile = (displayName: string) =>
   requestJson<AuthUser>('/api/auth/me', { method: 'PATCH', body: JSON.stringify({ display_name: displayName }) });
 
@@ -383,3 +396,14 @@ export const lookupPolicies = (
       scenario,
     }),
   });
+
+// góp ý / yêu cầu hỗ trợ
+export const submitFeedback = (kind: FeedbackKind, topic: string, content: string, contact: string) =>
+  requestJson<FeedbackItem>('/api/feedback', { method: 'POST', body: JSON.stringify({ kind, topic, content, contact }) });
+
+// Quản trị viên: hộp thư góp ý và số lượng theo trạng thái
+export const listFeedback = (status?: FeedbackStatus) =>
+  requestJson<{ items: FeedbackItem[]; counts: FeedbackCounts }>(`/api/feedback${status ? `?status=${status}` : ''}`);
+
+export const updateFeedback = (id: string, changes: { status?: FeedbackStatus; admin_note?: string }) =>
+  requestJson<FeedbackItem>(`/api/feedback/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) });

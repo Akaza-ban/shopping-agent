@@ -1,12 +1,11 @@
 import re
 from typing import List, Dict, Any, Optional
 from .base import BaseTool
-from services.catalog.categories import LABELS, known_category
+from services.catalog.categories import known_category
+from shared.categories import LABELS
+from shared.spec_rows import PREFERRED_SPEC_ROWS
+from services.catalog.reviews import rating_text
 
-PREFERRED_SPEC_ROWS = [
-    "CPU", "GPU", "RAM", "Lưu trữ", "Kích thước màn hình", "Độ phân giải", "Tần số quét",
-    "Pin", "Khối lượng", "Hệ điều hành", "Khối lượng giặt", "Dung tích", "Động cơ / Inverter", "Công suất", "Năm ra mắt",
-]
 MAX_SPEC_ROWS = 10
 
 
@@ -36,7 +35,7 @@ class SpecComparatorTool(BaseTool):
     description = "So sánh giá, đánh giá, bảo hành, đổi trả và thông số kỹ thuật chuẩn hóa giữa các sản phẩm"
 
     def build_table(self, products: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Bảng so sánh có cấu trúc:"""
+        """Bảng so sánh {columns, rows}; mỗi hàng có best_index = cột tốt nhất (giá thấp nhất, điểm / đánh giá cao nhất)."""
         columns = [
             {"id": p.get("id"), "name": p.get("name"), "platformName": p.get("platformName"), "externalUrl": p.get("externalUrl")}
             for p in products
@@ -57,7 +56,7 @@ class SpecComparatorTool(BaseTool):
         ratings = [float(p.get("rating") or 0) or None for p in products]
         add_row(
             "Đánh giá",
-            [f"{r:.1f}/5 ({p.get('reviewsCount', '')})" if r else "Chưa có đánh giá" for r, p in zip(ratings, products)],
+            [rating_text(r, p.get("reviewsCount")) for r, p in zip(ratings, products)],
             "max", ratings
         )
         add_row("Nơi bán", [p.get("platformName", "") for p in products])
