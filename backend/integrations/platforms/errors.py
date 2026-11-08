@@ -6,8 +6,6 @@ import httpx
 
 from shared.exceptions import CrawlerError
 
-# Lỗi mạng (httpx) và lỗi đọc dữ liệu do trang của sàn thay đổi cấu trúc:
-# JSON hỏng (ValueError), thiếu khóa / phần tử (KeyError, IndexError), giá trị None (TypeError, AttributeError).
 CRAWL_ERRORS = (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError)
 
 
