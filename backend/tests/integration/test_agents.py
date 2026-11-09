@@ -2,10 +2,12 @@ import pytest
 
 from core.graph import ShopAIAgentWorkflow
 from core.state import AgentState
+from database.connection import init_db
 
 
 @pytest.mark.anyio
 async def test_orchestrator_and_advisor_flow():
+    await init_db()  # máy chạy CI không có shopai.db sẵn: tạo bảng như lúc máy chủ khởi động
     workflow = ShopAIAgentWorkflow()
     state = AgentState(session_id="test-session-1", user_query="Tìm giúp tôi laptop gaming giá 20 triệu")
 
