@@ -1,4 +1,5 @@
 """Luật guardrails giá (services/pricing/guardrails.py)."""
+
 import pytest
 
 from services.pricing import guardrails as g
@@ -14,41 +15,47 @@ def test_compute_floors_from_real_prices():
     assert compute_floors([("audio", 1_000_000)] * (MIN_SAMPLES - 1)) == {}
 
 
-@pytest.mark.parametrize("price,category,rule", [
-    (0, None, "missing"),
-    (None, None, "missing"),
-    (5_000, None, "below_floor"),
-    (600_000_000, None, "above_ceiling"),
-    (100_000, "laptops", "below_category_floor"),
-    (300_000, "phones", "below_category_floor"),
-])
+@pytest.mark.parametrize(
+    "price,category,rule",
+    [
+        (0, None, "missing"),
+        (None, None, "missing"),
+        (5_000, None, "below_floor"),
+        (600_000_000, None, "above_ceiling"),
+        (100_000, "laptops", "below_category_floor"),
+        (300_000, "phones", "below_category_floor"),
+    ],
+)
 def test_check_price_rejects(price, category, rule):
     v = g.check_price(price, category)
     assert not v.ok and v.rule == rule and v.reason
 
 
-@pytest.mark.parametrize("price,category", [
-    (59_000, "other"),          # ốp lưng rẻ vẫn hợp lệ
-    (139_000, None),
-    (13_890_000, "laptops"),
-    (1_479_000, "phones"),
-])
+@pytest.mark.parametrize(
+    "price,category",
+    [
+        (59_000, "other"),  # ốp lưng rẻ vẫn hợp lệ
+        (139_000, None),
+        (13_890_000, "laptops"),
+        (1_479_000, "phones"),
+    ],
+)
 def test_check_price_accepts(price, category):
     assert g.check_price(price, category).ok
 
 
 def test_check_change():
-    assert g.check_change(25_000_000, 30_000_000).ok                      # giảm 17%
-    assert g.check_change(2_000_000, 25_000_000).rule == "sudden_drop"    # giảm 92%
+    assert g.check_change(25_000_000, 30_000_000).ok  # giảm 17%
+    assert g.check_change(2_000_000, 25_000_000).rule == "sudden_drop"  # giảm 92%
     assert g.check_change(28_000_000, 100_000).rule == "sudden_rise"
     assert g.check_change(25_000_000, None).ok
 
 
 def test_confirmation_helpers():
-    assert g.same_price(10_000_000, 10_150_000)          # lệch 1,5%
+    assert g.same_price(10_000_000, 10_150_000)  # lệch 1,5%
     assert not g.same_price(10_000_000, 10_500_000)
     assert not g.same_price(10_000_000, None)
-    assert g.is_big_drop(6_000_000, 10_000_000)          # giảm 40%
+    assert g.is_big_drop(6_000_000, 10_000_000)  # giảm 40%
     assert not g.is_big_drop(8_000_000, 10_000_000)
 
 

@@ -1,12 +1,14 @@
 """Ứng viên truy xuất, ngưỡng chấp nhận và điểm khớp hiển thị."""
+
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
 class Thresholds:
     """Khoảng cách cosine của bge-m3, hiệu chỉnh bằng `python -m scripts.rag.eval --calibrate`."""
-    vec_accept: float = 0.45   # đủ gần về nghĩa -> nhận luôn
+
+    vec_accept: float = 0.45  # đủ gần về nghĩa -> nhận luôn
     vec_weak: float = 0.50
     lex_support: float = 0.67  # tỉ lệ từ khóa cần có để "đỡ" kết quả hơi xa
     lex_only: float = 0.75
@@ -15,10 +17,10 @@ class Thresholds:
 @dataclass
 class Candidate:
     id: str
-    meta: Dict[str, Any]
+    meta: dict[str, Any]
     rrf: float
     coverage: float
-    distance: Optional[float] = None  # None khi embedding API không dùng được
+    distance: float | None = None  # None khi embedding API không dùng được
 
     def accepted(self, t: Thresholds) -> bool:
         if self.distance is None:

@@ -1,16 +1,18 @@
 """Nơi duy nhất gọi LLM: đổi lỗi của nhà cung cấp (openai, httpx, LangChain, hết thời gian chờ) thành LLMError."""
+
 import asyncio
 import json
 import re
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import openai
 from langchain_core.exceptions import LangChainException
 from langchain_core.messages import BaseMessage
 
-from shared.exceptions import LLMError, LLMResponseError
 from integrations.llm.client import get_chat_model, is_reachable
+from shared.exceptions import LLMError, LLMResponseError
 
 __all__ = ["ask_llm", "stream_llm", "parse_llm_json", "get_chat_model", "is_reachable", "LLM_PROVIDER_ERRORS"]
 
@@ -24,7 +26,7 @@ def _content(message: Any) -> str:
     return str(getattr(message, "content", message))
 
 
-async def ask_llm(model, messages: List[BaseMessage], timeout: Optional[float] = None) -> str:
+async def ask_llm(model, messages: list[BaseMessage], timeout: float | None = None) -> str:
     """Nội dung câu trả lời của LLM; lỗi nhà cung cấp -> LLMError."""
     if model is None:
         raise LLMError("Chưa cấu hình LLM")
@@ -36,7 +38,7 @@ async def ask_llm(model, messages: List[BaseMessage], timeout: Optional[float] =
     return _content(response)
 
 
-async def stream_llm(model, messages: List[BaseMessage]) -> AsyncIterator[str]:
+async def stream_llm(model, messages: list[BaseMessage]) -> AsyncIterator[str]:
     """Các token câu trả lời (bỏ token rỗng); lỗi nhà cung cấp -> LLMError."""
     if model is None:
         raise LLMError("Chưa cấu hình LLM")
@@ -49,7 +51,7 @@ async def stream_llm(model, messages: List[BaseMessage]) -> AsyncIterator[str]:
         raise LLMError(f"Stream LLM thất bại: {e}") from e
 
 
-def parse_llm_json(raw: str) -> Dict[str, Any]:
+def parse_llm_json(raw: str) -> dict[str, Any]:
     """Đối tượng JSON trong câu trả lời của LLM (bỏ khối ```json ... ``` nếu có); sai định dạng -> LLMResponseError."""
     text = (raw or "").strip()
     fenced = _FENCE_RE.search(text)

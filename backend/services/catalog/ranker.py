@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from integrations.platforms.common import canonical_spec_label
 from services.catalog.reviews import is_sold_label, parse_volume, review_count  # noqa: F401 (parse_volume: dùng lại từ đây)
@@ -11,11 +11,22 @@ PRIORITY_WEIGHTS = {
     "brand_reputation": {"attributes": 30, "budget": 15, "quality": 25, "deal": 5, "preference": 25},
     "best_performance": {"attributes": 45, "budget": 15, "quality": 25, "deal": 5, "preference": 10},
 }
-PRIOR_RATING = 4.0       # rating trung bình giả định khi ít dữ liệu
-PRIOR_WEIGHT = 30        # số "lượt ảo" kéo về PRIOR_RATING
-ATTRIBUTE_KEY_ALIASES = {"ssd": "Lưu trữ", "storage": "Lưu trữ", "rom": "Lưu trữ", "screen": "Kích thước màn hình",
-                         "battery": "Pin", "weight": "Khối lượng", "os": "Hệ điều hành"}
-USAGE_KEYWORDS = {"chơi game": ["gaming", "game"], "gaming": ["gaming", "game"], "đồ họa": ["creator", "studio", "oled"]}
+PRIOR_RATING = 4.0  # rating trung bình giả định khi ít dữ liệu
+PRIOR_WEIGHT = 30  # số "lượt ảo" kéo về PRIOR_RATING
+ATTRIBUTE_KEY_ALIASES = {
+    "ssd": "Lưu trữ",
+    "storage": "Lưu trữ",
+    "rom": "Lưu trữ",
+    "screen": "Kích thước màn hình",
+    "battery": "Pin",
+    "weight": "Khối lượng",
+    "os": "Hệ điều hành",
+}
+USAGE_KEYWORDS = {
+    "chơi game": ["gaming", "game"],
+    "gaming": ["gaming", "game"],
+    "đồ họa": ["creator", "studio", "oled"],
+}
 GENERIC_WORDS = {"laptop", "điện", "thoại", "máy", "tính", "tai", "nghe", "chính", "hãng", "mới", "giá", "rẻ"}
 
 
@@ -23,14 +34,14 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\-_]+", "", str(s).lower())
 
 
-def _spec_text(p: Dict[str, Any]) -> str:
+def _spec_text(p: dict[str, Any]) -> str:
     specs = p.get("specs")
     if isinstance(specs, dict):
         return " ".join(f"{k} {v}" for k, v in specs.items())
     return str(specs or "")
 
 
-def verifiable_attributes(criteria: Any) -> Dict[str, str]:
+def verifiable_attributes(criteria: Any) -> dict[str, str]:
     """Thông số yêu cầu có thể đối chiếu với tên / thông số sản phẩm (giá trị ngắn, VD "RTX 4070", "16GB")."""
     attrs = getattr(criteria, "attributes", None) or {}
     result = {}
@@ -46,7 +57,7 @@ def verifiable_attributes(criteria: Any) -> Dict[str, str]:
 _wanted_attributes = verifiable_attributes
 
 
-def check_attribute(p: Dict[str, Any], key: str, wanted: str) -> Tuple[str, Optional[str]]:
+def check_attribute(p: dict[str, Any], key: str, wanted: str) -> tuple[str, str | None]:
     """(verified | mismatch | unknown, giá trị thực tế khi mismatch) của một thông số yêu cầu trên sản phẩm."""
     haystack = _norm(f"{p.get('name', '')} {_spec_text(p)} {p.get('aiSummary', '')}")
     if _norm(wanted) in haystack:
@@ -59,7 +70,7 @@ def check_attribute(p: Dict[str, Any], key: str, wanted: str) -> Tuple[str, Opti
     return "unknown", None
 
 
-def score_product(p: Dict[str, Any], criteria: Any) -> Tuple[int, List[str], Dict[str, str]]:
+def score_product(p: dict[str, Any], criteria: Any) -> tuple[int, list[str], dict[str, str]]:
     """(điểm 0-100, lý do, trạng thái từng thông số yêu cầu) = trung bình có trọng số của 5 thành phần."""
     weights = PRIORITY_WEIGHTS.get(getattr(criteria, "priority", None) or "best_value", BASE_WEIGHTS)
     attributes, attr_reasons, attr_status = _score_attributes(p, criteria)
@@ -67,7 +78,13 @@ def score_product(p: Dict[str, Any], criteria: Any) -> Tuple[int, List[str], Dic
     quality, quality_reasons = _score_quality(p)
     deal, deal_reasons = _score_deal(p)
     preference = _score_preference(p, criteria)
-    reasons = attr_reasons + budget_reasons + quality_reasons + deal_reasons + (["Đúng hãng bạn chọn"] if preference[1] else [])
+    reasons = (
+        attr_reasons
+        + budget_reasons
+        + quality_reasons
+        + deal_reasons
+        + (["Đúng hãng bạn chọn"] if preference[1] else [])
+    )
 
     parts = {"attributes": attributes, "budget": budget, "quality": quality, "deal": deal, "preference": preference[0]}
     active = {k: w for k, w in weights.items() if parts.get(k) is not None}
@@ -77,7 +94,7 @@ def score_product(p: Dict[str, Any], criteria: Any) -> Tuple[int, List[str], Dic
     return int(round(score)), reasons, attr_status
 
 
-def _score_attributes(p: Dict[str, Any], criteria: Any) -> Tuple[Optional[float], List[str], Dict[str, str]]:
+def _score_attributes(p: dict[str, Any], criteria: Any) -> tuple[float | None, list[str], dict[str, str]]:
     """Tỉ lệ thông số yêu cầu đúng; chưa xác minh được tính 0,3 (thấp nhưng không bằng sai hẳn). None = không yêu cầu."""
     wanted = _wanted_attributes(criteria)
     if not wanted:
@@ -97,7 +114,7 @@ def _score_attributes(p: Dict[str, Any], criteria: Any) -> Tuple[Optional[float]
     return got / len(wanted), reasons, status_by_key
 
 
-def _score_budget(p: Dict[str, Any], criteria: Any) -> Tuple[float, List[str]]:
+def _score_budget(p: dict[str, Any], criteria: Any) -> tuple[float, list[str]]:
     """Trong ngân sách = 1; vượt thì giảm nhanh (vượt 20% -> 0); không nêu ngân sách = 0,5."""
     price = float(p.get("currentPrice") or 0)
     max_p, min_p = getattr(criteria, "max_price", None), getattr(criteria, "min_price", None)
@@ -110,7 +127,7 @@ def _score_budget(p: Dict[str, Any], criteria: Any) -> Tuple[float, List[str]]:
     return 0.5, []
 
 
-def _score_quality(p: Dict[str, Any]) -> Tuple[float, List[str]]:
+def _score_quality(p: dict[str, Any]) -> tuple[float, list[str]]:
     """
     Trung bình Bayes theo số lượt đánh giá: ít lượt thì kéo về PRIOR_RATING.
     Sàn chỉ ghi số đã bán thì không biết điểm dựa trên bao nhiêu đánh giá: lượt bán chỉ chứng tỏ có người mua,
@@ -122,17 +139,21 @@ def _score_quality(p: Dict[str, Any]) -> Tuple[float, List[str]]:
     label = p.get("reviewsCount")
     volume = min(parse_volume(label), PRIOR_WEIGHT) if is_sold_label(label) else review_count(label)
     bayes = (volume * rating + PRIOR_WEIGHT * PRIOR_RATING) / (volume + PRIOR_WEIGHT)
-    reasons = [f"Đánh giá {rating:.1f}/5 từ {volume:,} lượt"] if not is_sold_label(label) and volume >= 100 and rating >= 4.5 else []
+    reasons = (
+        [f"Đánh giá {rating:.1f}/5 từ {volume:,} lượt"]
+        if not is_sold_label(label) and volume >= 100 and rating >= 4.5
+        else []
+    )
     return max(0.0, min(1.0, (bayes - 3.0) / 2.0)), reasons
 
 
-def _score_deal(p: Dict[str, Any]) -> Tuple[float, List[str]]:
+def _score_deal(p: dict[str, Any]) -> tuple[float, list[str]]:
     """Giảm 30% trở lên là đủ điểm."""
     discount = int(p.get("discountPercent") or 0)
     return min(1.0, discount / 30), ([f"Đang giảm {discount}%"] if discount >= 10 else [])
 
 
-def _score_preference(p: Dict[str, Any], criteria: Any) -> Tuple[float, bool]:
+def _score_preference(p: dict[str, Any], criteria: Any) -> tuple[float, bool]:
     """(điểm, có đúng hãng người dùng chọn): hãng chọn / hãng gợi ý, và tên khớp nhu cầu hoặc loại sản phẩm."""
     name_l = str(p.get("name", "")).lower()
     brands = [b.lower() for b in (getattr(criteria, "brands", None) or [])]
@@ -143,13 +164,14 @@ def _score_preference(p: Dict[str, Any], criteria: Any) -> Tuple[float, bool]:
     usage = (getattr(criteria, "usage_purpose", None) or "").lower()
     product_type = (getattr(criteria, "product_type", None) or "").lower()
     keywords = list(USAGE_KEYWORDS.get(usage, [])) + [
-        w for w in re.findall(r"\w+", product_type) if len(w) > 2 and w not in GENERIC_WORDS]
+        w for w in re.findall(r"\w+", product_type) if len(w) > 2 and w not in GENERIC_WORDS
+    ]
     if keywords and any(k in name_l for k in keywords):
         pref += 0.4
     return min(1.0, pref), chosen_brand
 
 
-def rank_products(products: List[Dict[str, Any]], criteria: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+def rank_products(products: list[dict[str, Any]], criteria: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """Chấm điểm, sắp xếp giảm dần; trả về (danh sách, ghi chú tổng hợp cho Advisor)."""
     if not products:
         return products, []
@@ -163,7 +185,7 @@ def rank_products(products: List[Dict[str, Any]], criteria: Any) -> Tuple[List[D
         scored.append(item)
     scored.sort(key=lambda x: (x["aiMatchScore"], -float(x.get("currentPrice") or 0)), reverse=True)
 
-    notes: List[str] = []
+    notes: list[str] = []
     wanted = _wanted_attributes(criteria)
     if wanted:
         mismatched = [p for p in scored if "mismatch" in p["attributeMatch"].values()]

@@ -1,4 +1,5 @@
 """Cấu hình log chung: một định dạng cho mọi logger của ứng dụng."""
+
 import logging
 
 LOG_FORMAT = "%(asctime)s %(levelname)-7s [%(name)s] %(message)s"

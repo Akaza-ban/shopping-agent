@@ -1,4 +1,5 @@
 """Gán lại ngành hàng cho sản phẩm đã lưu trong SQLite theo bảng quy đổi danh mục (category_mappings)."""
+
 import asyncio
 import collections
 import os
@@ -18,16 +19,26 @@ async def main():
     con = sqlite3.connect(os.path.join(BACKEND_DIR, "shopai.db"))
     con.row_factory = sqlite3.Row
     rows = con.execute("SELECT id, name, platform, external_url, source_category_path FROM products").fetchall()
-    products = [{"id": r["id"], "name": r["name"], "platform": r["platform"], "externalUrl": r["external_url"],
-                 "sourceCategoryPath": r["source_category_path"]} for r in rows]
+    products = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "platform": r["platform"],
+            "externalUrl": r["external_url"],
+            "sourceCategoryPath": r["source_category_path"],
+        }
+        for r in rows
+    ]
 
     _backfill_tiki_categories(products)
     await category_resolver.resolve(products)
 
     for p in products:
         p["category"] = categorize(p)
-    con.executemany("UPDATE products SET category = ?, source_category_path = ? WHERE id = ?",
-                    [(p["category"], p["sourceCategoryPath"], p["id"]) for p in products])
+    con.executemany(
+        "UPDATE products SET category = ?, source_category_path = ? WHERE id = ?",
+        [(p["category"], p["sourceCategoryPath"], p["id"]) for p in products],
+    )
     con.commit()
     con.close()
     unresolved = sum(1 for p in products if category_resolver.lookup(p) is None)

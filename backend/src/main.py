@@ -1,6 +1,7 @@
 """Điểm vào của API: tạo app FastAPI, gắn middleware, xử lý lỗi, các router và vòng đời khởi động / tắt."""
-import sys
+
 import asyncio
+import sys
 
 if sys.platform == "win32":
     try:
@@ -17,7 +18,13 @@ from src.errors import register_error_handlers
 from src.lifespan import lifespan
 from src.middleware import setup_middleware
 from src.routes import (
-    alerts_router, auth_router, chat_router, crawler_router, feedback_router, link_parser_router, policies_router,
+    alerts_router,
+    auth_router,
+    chat_router,
+    crawler_router,
+    feedback_router,
+    link_parser_router,
+    policies_router,
     products_router,
 )
 
@@ -27,8 +34,8 @@ app = FastAPI(
     title=settings.APP_NAME,
     description="Hệ thống Backend Multi-Agent thông minh (Hỗ trợ Groq / OpenRouter & LangSmith Tracing)",
     version="1.0.0",
-    docs_url="/docs",      # Swagger UI tại http://localhost:8000/docs
-    redoc_url="/redoc",    # Redoc UI tại http://localhost:8000/redoc
+    docs_url="/docs",  # Swagger UI tại http://localhost:8000/docs
+    redoc_url="/redoc",  # Redoc UI tại http://localhost:8000/redoc
     lifespan=lifespan,
 )
 setup_middleware(app)
@@ -57,7 +64,8 @@ async def root():
         "message": "ShopAI Agent Backend is running!",
         "docs_url": "http://localhost:8000/docs",
         "llm_provider": settings.LLM_PROVIDER,
-        "langsmith_tracing": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1") and bool(settings.LANGCHAIN_API_KEY)
+        "langsmith_tracing": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1")
+        and bool(settings.LANGCHAIN_API_KEY),
     }
 
 
@@ -69,10 +77,11 @@ async def health_check():
         "environment": settings.ENVIRONMENT,
         "provider": settings.LLM_PROVIDER,
         "langsmith_project": settings.LANGCHAIN_PROJECT,
-        "langsmith_tracing_enabled": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1")
+        "langsmith_tracing_enabled": settings.LANGCHAIN_TRACING_V2.lower() in ("true", "1"),
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("src.main:app", host=settings.HOST, port=settings.PORT, reload=True)

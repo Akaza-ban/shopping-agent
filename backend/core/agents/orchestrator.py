@@ -1,22 +1,24 @@
-import re
 import logging
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
-from ..state import AgentState, UniversalSearchCriteria
+from integrations.llm import ask_llm, get_chat_model, parse_llm_json
+from integrations.platforms import platform_mentioned
+from shared.exceptions import LLMError, LLMResponseError
+
 from ..prompts.language import language_instruction
 from ..prompts.router_prompts import ROUTER_SYSTEM_PROMPT
+from ..state import AgentState, UniversalSearchCriteria
 from .patterns import ADVICE_RE, OUT_OF_SCOPE_RE, SEARCH_ACTION_RE, URL_RE
-from integrations.llm import get_chat_model
-from integrations.platforms import platform_mentioned
-from integrations.llm import ask_llm, parse_llm_json
-from shared.exceptions import LLMError, LLMResponseError
 
 logger = logging.getLogger("orchestrator")
 
-_FALLBACK_ADVICE_RE = re.compile(r'\b(?:n[êe]n\s+mua|c[óo]\s+n[êe]n\s+mua|n[êe]n\s+ch[ọo]n|ph[âa]n\s+v[âa]n|t[ưu]\s+v[ấa]n|ch[àa]o|hello|hi|alo)\b')
-_PRICE_RE = re.compile(r'(\d+)\s*(triệu|tr|củ)')
+_FALLBACK_ADVICE_RE = re.compile(
+    r"\b(?:n[êe]n\s+mua|c[óo]\s+n[êe]n\s+mua|n[êe]n\s+ch[ọo]n|ph[âa]n\s+v[âa]n|t[ưu]\s+v[ấa]n|ch[àa]o|hello|hi|alo)\b"
+)
+_PRICE_RE = re.compile(r"(\d+)\s*(triệu|tr|củ)")
 
 
 class OrchestratorAgent:
@@ -40,10 +42,13 @@ class OrchestratorAgent:
         return self._fallback_route(state)
 
     async def _llm_route(self, state: AgentState, chat_model, query: str) -> AgentState:
-        raw = await ask_llm(chat_model, [
-            SystemMessage(content=ROUTER_SYSTEM_PROMPT + language_instruction(state.language)),
-            HumanMessage(content=self._router_prompt(state, query)),
-        ])
+        raw = await ask_llm(
+            chat_model,
+            [
+                SystemMessage(content=ROUTER_SYSTEM_PROMPT + language_instruction(state.language)),
+                HumanMessage(content=self._router_prompt(state, query)),
+            ],
+        )
         parsed = parse_llm_json(raw)
 
         intent = parsed.get("intent", "search_products")
@@ -71,6 +76,7 @@ class OrchestratorAgent:
     def _router_prompt(state: AgentState, query: str) -> str:
         """Câu hỏi kèm lịch sử 2 lượt gần nhất và các sản phẩm đã đề xuất (để hiểu câu hỏi nối tiếp)."""
         from memory.session_manager import session_memory
+
         history = session_memory.format_chat_history_for_prompt(state.session_id, max_turns=2)
         previous_products = session_memory.format_previous_products_for_prompt(state.session_id)
         context = []
@@ -95,7 +101,9 @@ class OrchestratorAgent:
         """Cơ chế dự phòng bằng từ khóa khi chưa kết nối được LLM."""
         lower_query = state.user_query.lower()
         state.intent = self._fallback_intent(lower_query)
-        state.criteria = None if state.intent == "out_of_scope" else self._fallback_criteria(state.user_query, lower_query)
+        state.criteria = (
+            None if state.intent == "out_of_scope" else self._fallback_criteria(state.user_query, lower_query)
+        )
         return state
 
     @staticmethod
@@ -128,8 +136,23 @@ class OrchestratorAgent:
         unsupported = next((s for s in ("lazada", "shopee") if s in q), None)
         platforms = [mentioned.id] if mentioned else ([unsupported] if unsupported else ["all"])
 
-        is_acc = any(acc in q for acc in ["ốp", "bao da", "cường lực", "miếng dán", "dán màn", "dây sạc", "cáp",
-                                          "củ sạc", "giá đỡ", "chân đế", "balo", "túi chống sốc"])
+        is_acc = any(
+            acc in q
+            for acc in [
+                "ốp",
+                "bao da",
+                "cường lực",
+                "miếng dán",
+                "dán màn",
+                "dây sạc",
+                "cáp",
+                "củ sạc",
+                "giá đỡ",
+                "chân đế",
+                "balo",
+                "túi chống sốc",
+            ]
+        )
         return UniversalSearchCriteria(
             category=category,
             target_entity=None if is_acc else entity,

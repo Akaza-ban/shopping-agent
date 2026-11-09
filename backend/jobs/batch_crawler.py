@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from core.tools.ecom_search import EcomSearchTool
 from database.repositories import product_repository
@@ -26,13 +26,13 @@ DEFAULT_HOT_CATALOG = [
     {"query": "tai nghe", "platform": "cellphones", "category": "audio", "categoryName": "Thiết bị âm thanh"},
 ]
 
-class BatchCrawlerService:
 
-    def __init__(self, search_tool: Optional[EcomSearchTool] = None):
+class BatchCrawlerService:
+    def __init__(self, search_tool: EcomSearchTool | None = None):
         self.search_tool = search_tool or EcomSearchTool()
         self.is_running = False
-        self.last_run_time: Optional[datetime] = None
-        self.last_run_stats: Dict[str, Any] = {}
+        self.last_run_time: datetime | None = None
+        self.last_run_stats: dict[str, Any] = {}
 
     async def should_warmup(self, max_stale_hours: int = 12) -> bool:
         """Cần cào lại khi kho trống hoặc lần cập nhật gần nhất đã quá max_stale_hours (lỗi CSDL cũng cào)."""
@@ -46,11 +46,8 @@ class BatchCrawlerService:
         return latest_update < datetime.utcnow() - timedelta(hours=max_stale_hours)
 
     async def run_batch_crawl(
-        self,
-        catalog: Optional[List[Dict[str, str]]] = None,
-        limit_per_query: int = 4,
-        force_refresh: bool = True
-    ) -> Dict[str, Any]:
+        self, catalog: list[dict[str, str]] | None = None, limit_per_query: int = 4, force_refresh: bool = True
+    ) -> dict[str, Any]:
         if self.is_running:
             logger.warning("Một đợt cào dữ liệu đang diễn ra, vui lòng chờ...")
             return {"status": "already_running", "message": "Crawler is currently running"}
@@ -62,8 +59,10 @@ class BatchCrawlerService:
         crawled_summary = []
         try:
             for idx, target in enumerate(target_catalog, 1):
-                logger.info(f"  [{idx}/{len(target_catalog)}] Đang quét '{target['query']}' "
-                            f"({target.get('platform', 'all').upper()})...")
+                logger.info(
+                    f"  [{idx}/{len(target_catalog)}] Đang quét '{target['query']}' "
+                    f"({target.get('platform', 'all').upper()})..."
+                )
                 summary = await self._crawl_one(target, limit_per_query, force_refresh)
                 if summary:
                     crawled_summary.append(summary)
@@ -73,7 +72,7 @@ class BatchCrawlerService:
             self.is_running = False
         return self._record_run(len(target_catalog), crawled_summary, time.perf_counter() - start_time)
 
-    async def _crawl_one(self, target: Dict[str, str], limit: int, force_refresh: bool) -> Optional[Dict[str, Any]]:
+    async def _crawl_one(self, target: dict[str, str], limit: int, force_refresh: bool) -> dict[str, Any] | None:
         """Cào thật một từ khóa (EcomSearchTool tự nạp vào CSDL và ghi lịch sử giá); lỗi thì bỏ qua từ khóa đó."""
         query, platform = target["query"], target.get("platform", "all")
         try:
@@ -89,7 +88,7 @@ class BatchCrawlerService:
             return None
         return {"query": query, "platform": platform, "count": len(results)}
 
-    def _record_run(self, queries_count: int, crawled_summary: List[Dict[str, Any]], duration: float) -> Dict[str, Any]:
+    def _record_run(self, queries_count: int, crawled_summary: list[dict[str, Any]], duration: float) -> dict[str, Any]:
         total_items_saved = sum(item["count"] for item in crawled_summary)
         self.last_run_time = datetime.utcnow()
         self.last_run_stats = {
@@ -106,7 +105,7 @@ class BatchCrawlerService:
         )
         return self.last_run_stats
 
-    async def get_crawler_status(self) -> Dict[str, Any]:
+    async def get_crawler_status(self) -> dict[str, Any]:
         """Lấy thông tin tổng quan về trạng thái kho CSDL và crawler."""
         try:
             total_products, latest_update = await product_repository.catalog_snapshot()
@@ -119,7 +118,7 @@ class BatchCrawlerService:
             "latestDataUpdate": latest_update.isoformat() if latest_update else None,
             "lastRunTime": self.last_run_time.isoformat() if self.last_run_time else None,
             "lastRunStats": self.last_run_stats,
-            "hotCatalogCount": len(DEFAULT_HOT_CATALOG)
+            "hotCatalogCount": len(DEFAULT_HOT_CATALOG),
         }
 
 

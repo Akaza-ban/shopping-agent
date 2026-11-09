@@ -1,8 +1,8 @@
-import sys
-import os
-import json
-import asyncio
 import argparse
+import asyncio
+import json
+import os
+import sys
 import time
 
 # Đảm bảo đường dẫn import từ thư mục gốc backend B
@@ -15,10 +15,11 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 from sqlalchemy import select
-from database.connection import init_db, close_db, async_session
+
+from core.tools.ecom_search import EcomSearchTool
+from database.connection import async_session, close_db, init_db
 from database.models import ProductModel
 from services.rag import rag_service
-from core.tools.ecom_search import EcomSearchTool
 
 EXPANDED_HOT_CATALOG = [
     # 1. Điện thoại & Máy tính bảng (Phones & Tablets)
@@ -32,7 +33,6 @@ EXPANDED_HOT_CATALOG = [
     {"query": "oppo reno 12", "platform": "all", "category": "phones", "categoryName": "Điện thoại"},
     {"query": "ipad air", "platform": "all", "category": "phones", "categoryName": "Máy tính bảng"},
     {"query": "ipad pro", "platform": "all", "category": "phones", "categoryName": "Máy tính bảng"},
-
     # 2. Laptop & Máy tính (Laptops & Computing)
     {"query": "macbook air m2", "platform": "all", "category": "laptops", "categoryName": "Laptop"},
     {"query": "macbook pro m3", "platform": "all", "category": "laptops", "categoryName": "Laptop"},
@@ -44,19 +44,22 @@ EXPANDED_HOT_CATALOG = [
     {"query": "laptop gaming acer nitro", "platform": "all", "category": "laptops", "categoryName": "Laptop"},
     {"query": "laptop lenovo legion", "platform": "all", "category": "laptops", "categoryName": "Laptop"},
     {"query": "laptop mỏng nhẹ", "platform": "all", "category": "laptops", "categoryName": "Laptop"},
-
     # 3. Đồ gia dụng & Đời sống (Home Appliances)
     {"query": "noi chien khong dau", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "robot hut bui", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "may loc khong khi", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
-    {"query": "tu lanh toshiba inverter", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
+    {
+        "query": "tu lanh toshiba inverter",
+        "platform": "all",
+        "category": "home_appliances",
+        "categoryName": "Đồ gia dụng",
+    },
     {"query": "may giat panasonic", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "noi com dien cuckoo", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "quat cay panasonic", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "may say toc philips", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "bep tu don", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
     {"query": "lo vi song", "platform": "all", "category": "home_appliances", "categoryName": "Đồ gia dụng"},
-
     # 4. Thiết bị âm thanh & Phụ kiện (Audio & Accessories)
     {"query": "tai nghe airpods pro", "platform": "all", "category": "audio", "categoryName": "Thiết bị âm thanh"},
     {"query": "tai nghe sony wh-1000xm5", "platform": "all", "category": "audio", "categoryName": "Thiết bị âm thanh"},
@@ -66,8 +69,13 @@ EXPANDED_HOT_CATALOG = [
     {"query": "sac du phong anker", "platform": "all", "category": "accessories", "categoryName": "Phụ kiện"},
     {"query": "chuot khong day logitech", "platform": "all", "category": "accessories", "categoryName": "Phụ kiện"},
     {"query": "ban phim co", "platform": "all", "category": "accessories", "categoryName": "Phụ kiện"},
-    {"query": "dong ho apple watch", "platform": "all", "category": "accessories", "categoryName": "Đồng hồ thông minh"},
-    {"query": "dong ho garmin", "platform": "all", "category": "accessories", "categoryName": "Đồng hồ thông minh"}
+    {
+        "query": "dong ho apple watch",
+        "platform": "all",
+        "category": "accessories",
+        "categoryName": "Đồng hồ thông minh",
+    },
+    {"query": "dong ho garmin", "platform": "all", "category": "accessories", "categoryName": "Đồng hồ thông minh"},
 ]
 
 
@@ -92,29 +100,51 @@ async def sync_sqlite_to_chroma() -> int:
             except ValueError:
                 specs_parsed = p.specs
 
-            product_dicts.append({
-                "id": p.id,
-                "name": p.name,
-                "category": p.category,
-                "categoryName": p.category_name,
-                "platform": p.platform,
-                "platformName": p.platform_name,
-                "originalPrice": p.original_price,
-                "currentPrice": p.current_price,
-                "discountPercent": p.discount_percent,
-                "rating": p.rating,
-                "reviewsCount": p.reviews_count,
-                "image": p.image,
-                "specs": specs_parsed,
-                "aiSummary": p.ai_summary,
-                "warranty": p.warranty,
-                "deliveryTag": p.delivery_tag,
-                "externalUrl": p.external_url
-            })
+            product_dicts.append(
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "category": p.category,
+                    "categoryName": p.category_name,
+                    "platform": p.platform,
+                    "platformName": p.platform_name,
+                    "originalPrice": p.original_price,
+                    "currentPrice": p.current_price,
+                    "discountPercent": p.discount_percent,
+                    "rating": p.rating,
+                    "reviewsCount": p.reviews_count,
+                    "image": p.image,
+                    "specs": specs_parsed,
+                    "aiSummary": p.ai_summary,
+                    "warranty": p.warranty,
+                    "deliveryTag": p.delivery_tag,
+                    "externalUrl": p.external_url,
+                }
+            )
 
         count = rag_service.upsert_products(product_dicts)
         print(f"  Đã đồng bộ thành công {count} sản phẩm từ SQLite vào ChromaDB!")
         return count
+
+
+async def _seed_query(search_tool: EcomSearchTool, item: dict, limit_per_query: int) -> int:
+    """Cào một từ khóa trong danh mục HOT rồi nạp thẳng vào ChromaDB; trả về số sản phẩm đã nạp."""
+    products = await search_tool.run(
+        query=item["query"],
+        category=item.get("category", "all"),
+        platform=item.get("platform", "all"),
+        limit=limit_per_query,
+        force_refresh=True,
+    )
+    if not products:
+        print("-> 0 sản phẩm (Bỏ qua)")
+        return 0
+    category_name = item.get("categoryName", "Sản phẩm")
+    for product in products:
+        product["categoryName"] = product.get("categoryName") or category_name
+    rag_service.upsert_products(products)
+    print(f"-> Thu được {len(products)} sản phẩm ")
+    return len(products)
 
 
 async def crawl_and_seed_chroma(catalog: list, limit_per_query: int = 5) -> int:
@@ -125,39 +155,18 @@ async def crawl_and_seed_chroma(catalog: list, limit_per_query: int = 5) -> int:
     start_time = time.perf_counter()
 
     for idx, item in enumerate(catalog, 1):
-        q = item["query"]
         platform = item.get("platform", "all")
-        cat = item.get("category", "all")
-        cat_name = item.get("categoryName", "Sản phẩm")
-
-        print(f"  [{idx:02d}/{len(catalog):02d}] Đang quét: '{q}' trên {platform.upper()}...", end=" ", flush=True)
-
+        print(
+            f"  [{idx:02d}/{len(catalog):02d}] Đang quét: '{item['query']}' trên {platform.upper()}...",
+            end=" ",
+            flush=True,
+        )
         try:
-            prods = await search_tool.run(
-                query=q,
-                category=cat,
-                platform=platform,
-                limit=limit_per_query,
-                force_refresh=True
-            )
-
-            if prods:
-                # Gán lại categoryName thân thiện
-                for p in prods:
-                    if not p.get("categoryName"):
-                        p["categoryName"] = cat_name
-
-                # Nạp ngay vào ChromaDB
-                rag_service.upsert_products(prods)
-                print(f"-> Thu được {len(prods)} sản phẩm ")
-                total_crawled += len(prods)
-            else:
-                print("-> 0 sản phẩm (Bỏ qua)")
-
+            total_crawled += await _seed_query(search_tool, item, limit_per_query)
         except Exception as e:  # chốt chặn: một từ khóa lỗi không được dừng cả đợt nạp
             print(f"-> Lỗi: {e}")
 
-        # Nghỉ nhẹ 1.2 giây giữa các request để tránh bị sàn chặn IP
+        # Nghỉ giữa các từ khóa để tránh bị sàn chặn IP
         if idx < len(catalog):
             await asyncio.sleep(1.2)
 
@@ -184,11 +193,8 @@ async def main():
 
     crawled_count = 0
     if not args.sync_only:
-        selected_catalog = EXPANDED_HOT_CATALOG[:args.queries]
-        crawled_count = await crawl_and_seed_chroma(
-            catalog=selected_catalog,
-            limit_per_query=args.limit_per_query
-        )
+        selected_catalog = EXPANDED_HOT_CATALOG[: args.queries]
+        crawled_count = await crawl_and_seed_chroma(catalog=selected_catalog, limit_per_query=args.limit_per_query)
 
     await close_db()
 

@@ -1,8 +1,8 @@
 """Tạo LangChain chat model theo nhà cung cấp đã cấu hình (DeepSeek / OpenRouter / Groq), có model dự phòng."""
-import time
-import socket
+
 import logging
-from typing import Dict, Tuple
+import socket
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -12,10 +12,10 @@ from shared.config import settings
 logger = logging.getLogger("llm_client")
 
 REACHABILITY_TIMEOUT_SECONDS = 1.5
-REACHABLE_CACHE_SECONDS = 300    # đang tốt: 5 phút mới kiểm tra lại
+REACHABLE_CACHE_SECONDS = 300  # đang tốt: 5 phút mới kiểm tra lại
 UNREACHABLE_CACHE_SECONDS = 60
 FAST_MODEL_TIMEOUT_SECONDS = 15.0
-_reachability: Dict[str, Tuple[float, bool]] = {}
+_reachability: dict[str, tuple[float, bool]] = {}
 
 
 def is_reachable(base_url: str) -> bool:
@@ -93,16 +93,18 @@ def get_chat_model(temperature: float = 0.7, fast: bool = False):
     for name in reachable:
         key, base_url, model = candidates[name]
         try:
-            models.append(ChatOpenAI(
-                base_url=base_url,
-                api_key=key,
-                model=model,
-                temperature=temperature,
-                max_tokens=1200,
-                timeout=httpx.Timeout(45.0, connect=5.0),
-                max_retries=0 if len(reachable) > 1 or fast_model else 1,
-            ))
-        except ValueError as e:  
+            models.append(
+                ChatOpenAI(
+                    base_url=base_url,
+                    api_key=key,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=1200,
+                    timeout=httpx.Timeout(45.0, connect=5.0),
+                    max_retries=0 if len(reachable) > 1 or fast_model else 1,
+                )
+            )
+        except ValueError as e:
             logger.warning(f"Không thể khởi tạo {name}: {e}")
 
     if not models:
@@ -111,4 +113,3 @@ def get_chat_model(temperature: float = 0.7, fast: bool = False):
     if len(models) == 1:
         return models[0]
     return models[0].with_fallbacks(models[1:])
-

@@ -1,6 +1,9 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime
 from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Integer, String, Text
+
 from ..connection import Base
+
 
 class SearchCacheModel(Base):
     __tablename__ = "search_cache"

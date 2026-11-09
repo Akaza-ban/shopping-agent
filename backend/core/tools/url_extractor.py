@@ -4,14 +4,17 @@
     -> làm sạch + kiểm định giá -> lưu kho RAG để lần sau tìm được.
 
 Giá không hợp lệ -> trả sản phẩm với priceUnavailable=True (không lưu kho).
+Link trang lạ (không thuộc sàn hỗ trợ) chỉ trả kết quả cho người dán, không lưu vào kho RAG chung.
+Link trỏ vào mạng nội bộ (localhost, 10.x, 169.254.x...) bị từ chối (integrations/safe_http.py).
 """
+
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
-from integrations.platforms import display_names, platform_for_url
-from integrations.platforms import link_reader
+from integrations.platforms import display_names, link_reader, platform_for_url
 from integrations.platforms.errors import crawling
+from integrations.safe_http import check_public_url
 from services.catalog.categories import categorize
 from services.catalog.category_resolver import category_resolver
 from services.catalog.data_processor import data_processor
@@ -26,13 +29,13 @@ logger = logging.getLogger("url_extractor")
 UNSUPPORTED_SITES = {"shopee.vn": "Shopee", "shp.ee": "Shopee", "lazada.vn": "Lazada"}
 
 
-def unsupported_site(url: str) -> Optional[str]:
+def unsupported_site(url: str) -> str | None:
     """Tên sàn nếu link thuộc sàn không hỗ trợ, ngược lại None."""
     url_lower = (url or "").lower()
     return next((name for domain, name in UNSUPPORTED_SITES.items() if domain in url_lower), None)
 
 
-def _ai_summary(product: Dict[str, Any]) -> str:
+def _ai_summary(product: dict[str, Any]) -> str:
     """Tóm tắt thẩm định ngắn: sàn, ưu đãi / giá niêm yết, đánh giá, bảo hành."""
     price = product.get("currentPrice", 0)
     orig_price = product.get("originalPrice", price)
@@ -53,13 +56,14 @@ class UrlExtractorTool(BaseTool):
     name = "url_extractor"
     description = f"Trích xuất và thẩm định thông tin sản phẩm thực tế từ đường dẫn link (URL) {display_names()}"
 
-    async def run(self, url: str) -> Dict[str, Any]:
+    async def run(self, url: str) -> dict[str, Any]:
         url = (url or "").strip()
         if not url:
             raise InvalidInputError("URL không được để trống")
         site = unsupported_site(url)
         if site:
             raise InvalidInputError(f"Chưa hỗ trợ đọc link {site}")
+        await check_public_url(url)
 
         item = await self._read_link(url)
         await self._apply_category(item)
@@ -74,11 +78,12 @@ class UrlExtractorTool(BaseTool):
             return item
 
         processed["aiSummary"] = _ai_summary(processed)
-        await self._store_in_rag(processed)
+        if platform_for_url(url) is not None:  # dữ liệu trang lạ không đáng tin để người khác tìm thấy
+            await self._store_in_rag(processed)
         return processed
 
     @staticmethod
-    async def _read_link(url: str) -> Dict[str, Any]:
+    async def _read_link(url: str) -> dict[str, Any]:
         """Dữ liệu thô của sản phẩm theo sàn của link; trang đổi cấu trúc / dữ liệu hỏng -> CrawlerError."""
         platform = platform_for_url(url)
         with crawling(platform.name if platform else url):
@@ -86,13 +91,18 @@ class UrlExtractorTool(BaseTool):
                 return await link_reader.read_generic(url)
             if platform.id == "tiki":
                 return await link_reader.read_tiki(url)
-            item = await link_reader.read_mwg(url, platform=platform.id, platform_name=platform.name,
-                                              badge_color=platform.badge_color, badge_bg=platform.badge_bg)
+            item = await link_reader.read_mwg(
+                url,
+                platform=platform.id,
+                platform_name=platform.name,
+                badge_color=platform.badge_color,
+                badge_bg=platform.badge_bg,
+            )
         item["name"] = platform.clean_link_name(str(item.get("name") or ""))
         return item
 
     @staticmethod
-    async def _apply_category(item: Dict[str, Any]) -> None:
+    async def _apply_category(item: dict[str, Any]) -> None:
         """Ngành hàng theo danh mục của sàn (danh mục mới được LLM quy đổi một lần rồi lưu lại)."""
         await category_resolver.resolve([item])
         mapping = category_resolver.lookup(item)
@@ -100,9 +110,10 @@ class UrlExtractorTool(BaseTool):
             item["category"] = mapping.category
 
     @staticmethod
-    async def _store_in_rag(product: Dict[str, Any]) -> None:
+    async def _store_in_rag(product: dict[str, Any]) -> None:
         """Lưu vào kho RAG để lần sau tìm được sản phẩm này; lỗi thì bỏ qua."""
         from services.rag import rag_service  # rag_service tự bỏ qua lỗi ChromaDB / embedding
+
         stored = await asyncio.to_thread(rag_service.upsert_products, [product])
         if stored:
             logger.info(f"[UrlExtractor] Đã tự động lưu sản phẩm '{product['name']}' vào ChromaDB.")

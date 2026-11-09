@@ -1,20 +1,29 @@
 """Thế Giới Di Động & Điện Máy Xanh (cùng hệ thống MWG): trang tìm kiếm HTML và trang chi tiết HTML."""
+
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
-from core.state import UniversalSearchCriteria
 from integrations.platforms.base import PlatformAdapter
-from services.catalog.reviews import sold_label
 from integrations.platforms.common import (
-    BROWSER_HEADERS, MAX_SPEC_ITEMS, PAGE_HEADERS, canonical_spec_label, clean_text, page_offer, parse_availability,
-    query_candidates, within_price, broadened_note, first_hit,
+    BROWSER_HEADERS,
+    MAX_SPEC_ITEMS,
+    PAGE_HEADERS,
+    broadened_note,
+    canonical_spec_label,
+    clean_text,
+    first_hit,
+    page_offer,
+    parse_availability,
+    query_candidates,
+    within_price,
 )
+from services.catalog.reviews import sold_label
 
 logger = logging.getLogger("platforms.mwg")
 
@@ -27,7 +36,7 @@ def _price(text: str) -> float:
     return float(m.group(1).replace(".", "")) if m else 0.0
 
 
-def parse_mwg_listing(html: str, platform: str, domain: str) -> List[Dict[str, Any]]:
+def parse_mwg_listing(html: str, platform: str, domain: str) -> list[dict[str, Any]]:
     """Danh sách sản phẩm từ HTML trang danh mục/tìm kiếm TGDĐ & ĐMX (giao diện Next.js 2026)."""
     soup = BeautifulSoup(html, "html.parser")
     items, seen_roots = [], set()
@@ -44,7 +53,7 @@ def parse_mwg_listing(html: str, platform: str, domain: str) -> List[Dict[str, A
     return items
 
 
-def _card_root(img) -> Optional[Any]:
+def _card_root(img) -> Any | None:
     """Thẻ sản phẩm chứa ảnh: phần tử cha gần nhất (tối đa 8 cấp) có giá; bỏ khối danh sách chứa nhiều sản phẩm."""
     node = img
     for _ in range(8):
@@ -52,12 +61,14 @@ def _card_root(img) -> Optional[Any]:
         if node is None or node.name in ("body", "html"):
             return None
         if MWG_PRICE_RE.search(node.get_text(" ", strip=True)):
-            alts = {i.get("alt", "").strip() for i in node.find_all("img", alt=True) if len(i.get("alt", "").strip()) >= 4}
+            alts = {
+                i.get("alt", "").strip() for i in node.find_all("img", alt=True) if len(i.get("alt", "").strip()) >= 4
+            }
             return node if len(alts) <= 2 else None
     return None
 
 
-def _parse_card(img, root, platform: str, domain: str) -> Optional[Dict[str, Any]]:
+def _parse_card(img, root, platform: str, domain: str) -> dict[str, Any] | None:
     href = _card_href(root, domain)
     current, original = _card_prices(root)
     if not href or current <= 0:
@@ -81,7 +92,7 @@ def _parse_card(img, root, platform: str, domain: str) -> Optional[Dict[str, Any
     }
 
 
-def _card_href(root, domain: str) -> Optional[str]:
+def _card_href(root, domain: str) -> str | None:
     hrefs = [a.get("href", "") for a in root.find_all("a", href=True)]
     hrefs = [h for h in hrefs if (h.startswith("/") and len(h) > 1) or h.startswith(domain)]
     if not hrefs:
@@ -89,13 +100,14 @@ def _card_href(root, domain: str) -> Optional[str]:
     return hrefs[0] if hrefs[0].startswith("http") else f"{domain}{hrefs[0]}"
 
 
-def _card_prices(root) -> Tuple[float, float]:
+def _card_prices(root) -> tuple[float, float]:
     """(giá bán, giá gốc): ưu tiên giá màu đỏ, không có thì giá lớn nhất ngoài <del> (bỏ "Quà ..."); giá gốc ở <del>."""
     price_el = root.select_one("[class*=text-red-7]")
     current = _price(price_el.get_text()) if price_el else 0.0
     if current <= 0:
-        candidates = [_price(s) for s in root.find_all(string=MWG_PRICE_RE)
-                      if not s.find_parent("del") and "quà" not in s.lower()]
+        candidates = [
+            _price(s) for s in root.find_all(string=MWG_PRICE_RE) if not s.find_parent("del") and "quà" not in s.lower()
+        ]
         current = max(candidates) if candidates else 0.0
     original = max([p for p in (_price(d.get_text()) for d in root.find_all("del")) if p > current], default=current)
     return current, original
@@ -116,10 +128,10 @@ def _card_image(img) -> str:
     return f"https:{thumb}" if thumb.startswith("//") else thumb
 
 
-def parse_mwg_detail(html: str) -> Dict[str, Any]:
+def parse_mwg_detail(html: str) -> dict[str, Any]:
     """Đọc trang chi tiết TGDĐ/ĐMX: bảng thông số + câu bảo hành/đổi trả."""
     soup = BeautifulSoup(html, "html.parser")
-    specs: Dict[str, str] = {}
+    specs: dict[str, str] = {}
     for li in soup.find_all("li"):
         children = [c for c in li.find_all(recursive=False) if clean_text(c.get_text())]
         if len(children) < 2:
@@ -142,7 +154,9 @@ def parse_mwg_detail(html: str) -> Dict[str, Any]:
 
     sentence_end = r"(?<!\d)\.|\.(?!\d)"
     warranty = None
-    m = re.search(rf"Bảo hành chính hãng\s+(.{{3,80}}?)(?=\s+(?:Xem|Hư gì|Bộ sản phẩm|Kèm theo)|,|{sentence_end}|$)", text)
+    m = re.search(
+        rf"Bảo hành chính hãng\s+(.{{3,80}}?)(?=\s+(?:Xem|Hư gì|Bộ sản phẩm|Kèm theo)|,|{sentence_end}|$)", text
+    )
     if m:
         warranty = f"Bảo hành chính hãng {m.group(1).strip()}"
 
@@ -154,7 +168,7 @@ def parse_mwg_detail(html: str) -> Dict[str, Any]:
     return {"specs": specs, "warranty": warranty, "returnPolicy": return_policy}
 
 
-def parse_mwg_price(html: str) -> Optional[Tuple[float, float]]:
+def parse_mwg_price(html: str) -> tuple[float, float] | None:
     """
     (giá bán, giá gốc) đang hiển thị trên trang chi tiết: số màu đỏ có giá gạch ngang (<del>) cạnh bên.
     Không dùng JSON-LD vì trang ghi giá của khu vực giá khác (thường cao hơn giá đang bán online).
@@ -181,7 +195,7 @@ def _token_pattern(word: str) -> re.Pattern:
     return re.compile(r"(?<![\w.])" + r"\s?".join(map(re.escape, parts)) + r"(?!\w)", re.IGNORECASE)
 
 
-def _narrow_to_model(items: List[Dict[str, Any]], words: List[str], model: List[re.Pattern]) -> List[Dict[str, Any]]:
+def _narrow_to_model(items: list[dict[str, Any]], words: list[str], model: list[re.Pattern]) -> list[dict[str, Any]]:
     """Thẻ có đủ các số model; thẻ khớp nhiều từ của từ khóa hơn (hãng, dòng máy) xếp trước."""
     matched = [it for it in items if all(p.search(it["name"]) for p in model)]
     others = [_token_pattern(w) for w in words if not re.search(r"\d", w)]
@@ -189,15 +203,24 @@ def _narrow_to_model(items: List[Dict[str, Any]], words: List[str], model: List[
 
 
 class MwgAdapter(PlatformAdapter):
-    def __init__(self, id: str, name: str, domain: str, aliases, badge_color: str, badge_bg: str,
-                 warranty: str, delivery_tag: str):
+    def __init__(
+        self,
+        id: str,
+        name: str,
+        domain: str,
+        aliases,
+        badge_color: str,
+        badge_bg: str,
+        warranty: str,
+        delivery_tag: str,
+    ):
         self.id, self.name, self.domain = id, name, domain
         self.hosts = (domain.split("//", 1)[-1].removeprefix("www."),)
         self.aliases = tuple(aliases)
         self.badge_color, self.badge_bg = badge_color, badge_bg
         self.warranty, self.delivery_tag = warranty, delivery_tag
 
-    def parse_listing(self, html: str) -> List[Dict[str, Any]]:
+    def parse_listing(self, html: str) -> list[dict[str, Any]]:
         return parse_mwg_listing(html, self.id, self.domain)
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
@@ -206,15 +229,17 @@ class MwgAdapter(PlatformAdapter):
         async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=12.0) as client:
             raw, used = await first_hit(query_candidates(keyword, criteria), lambda q: self._fetch_model(client, q))
         if not raw:
-            logger.info(f"[{self.name}] Không có sản phẩm nào cho '{keyword}' "
-                        f"(sàn không bán mặt hàng này, hoặc trang đã đổi giao diện - xem test RUN_LIVE_TESTS).")
+            logger.info(
+                f"[{self.name}] Không có sản phẩm nào cho '{keyword}' "
+                f"(sàn không bán mặt hàng này, hoặc trang đã đổi giao diện - xem test RUN_LIVE_TESTS)."
+            )
             return []
         note = broadened_note(self.name, keyword, used)
         if note:
             notes.append(note)
         return [self._to_product(it, criteria) for it in raw if within_price(it["currentPrice"], criteria)][:limit]
 
-    async def _fetch_model(self, client, query: str) -> List[Dict[str, Any]]:
+    async def _fetch_model(self, client, query: str) -> list[dict[str, Any]]:
         """
         Từ khóa có số model ("iphone 16", "tủ lạnh samsung 236 lít") thường ra trang tìm kiếm rỗng
         (kết quả do JavaScript nạp sau). Khi đó bỏ dần từ cuối tới khi sàn chuyển sang trang danh mục
@@ -231,7 +256,7 @@ class MwgAdapter(PlatformAdapter):
                 return _narrow_to_model(items, words, model)
         return []
 
-    async def _fetch_listing(self, client, query: str) -> List[Dict[str, Any]]:
+    async def _fetch_listing(self, client, query: str) -> list[dict[str, Any]]:
         """Sản phẩm trên trang tìm kiếm; trang ~600KB đôi khi bị ngắt giữa chừng nên thử lại 1 lần."""
         for attempt in range(2):
             try:
@@ -242,7 +267,7 @@ class MwgAdapter(PlatformAdapter):
                 await asyncio.sleep(0.5)
         return []
 
-    def _to_product(self, it: Dict[str, Any], criteria) -> Dict[str, Any]:
+    def _to_product(self, it: dict[str, Any], criteria) -> dict[str, Any]:
         specs = it["specs"]
         return {
             **self.product_base(criteria),
@@ -263,15 +288,15 @@ class MwgAdapter(PlatformAdapter):
         }
 
     async def fetch_detail(self, client, product):
-        url = product.get("externalUrl") or ""
-        if not url.startswith("http"):
+        url = self.page_url(product)
+        if not url:
             return None
         resp = await client.get(url, headers=PAGE_HEADERS)
         return parse_mwg_detail(resp.text) if resp.status_code == 200 else None
 
     async def fetch_price(self, client, product):
-        url = product.get("externalUrl") or ""
-        if not url.startswith("http"):
+        url = self.page_url(product)
+        if not url:
             return None
         resp = await client.get(url, headers=PAGE_HEADERS)
         if resp.status_code != 200:
@@ -291,10 +316,22 @@ class MwgAdapter(PlatformAdapter):
 
 
 TGDD = MwgAdapter(
-    "tgdd", "Thế Giới Di Động", "https://www.thegioididong.com", ("tgdd", "thế giới di động", "thegioididong"),
-    "#EEC708", "rgba(255, 212, 0, 0.15)", "Chính hãng TGDĐ (1 đổi 1 tháng đầu)", "Giao nhanh 2h",
+    "tgdd",
+    "Thế Giới Di Động",
+    "https://www.thegioididong.com",
+    ("tgdd", "thế giới di động", "thegioididong"),
+    "#EEC708",
+    "rgba(255, 212, 0, 0.15)",
+    "Chính hãng TGDĐ (1 đổi 1 tháng đầu)",
+    "Giao nhanh 2h",
 )
 DMX = MwgAdapter(
-    "dmx", "Điện Máy Xanh", "https://www.dienmayxanh.com", ("dmx", "điện máy xanh", "dienmayxanh"),
-    "#0083d1", "rgba(0, 131, 209, 0.15)", "Chính hãng ĐMX (Lắp đặt tận nhà)", "Giao hàng & Lắp đặt",
+    "dmx",
+    "Điện Máy Xanh",
+    "https://www.dienmayxanh.com",
+    ("dmx", "điện máy xanh", "dienmayxanh"),
+    "#0083d1",
+    "rgba(0, 131, 209, 0.15)",
+    "Chính hãng ĐMX (Lắp đặt tận nhà)",
+    "Giao hàng & Lắp đặt",
 )

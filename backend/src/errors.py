@@ -1,4 +1,5 @@
 """Đổi lỗi của hệ thống (shared.exceptions) thành HTTP response; route chỉ cần `raise NotFoundError(...)`."""
+
 import logging
 
 from fastapi import FastAPI, Request

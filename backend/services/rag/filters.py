@@ -1,27 +1,28 @@
 """Bộ lọc metadata dùng chung cho truy vấn vector (ChromaDB `where`) và BM25 (hàm Python)."""
+
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from shared.categories import canonical_code
 
-Meta = Dict[str, Any]
+Meta = dict[str, Any]
 
 
 @dataclass
 class SearchFilters:
-    category: Optional[str] = None
-    platform: Optional[str] = None
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
-    max_age_days: Optional[int] = None
-    excluded_platforms: List[str] = field(default_factory=list)
+    category: str | None = None
+    platform: str | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    max_age_days: int | None = None
+    excluded_platforms: list[str] = field(default_factory=list)
 
-    def _conditions(self) -> List[Tuple[str, str, Any]]:
+    def _conditions(self) -> list[tuple[str, str, Any]]:
         """Danh sách (trường, toán tử, giá trị) theo cú pháp ChromaDB."""
-        conds: List[Tuple[str, str, Any]] = []
+        conds: list[tuple[str, str, Any]] = []
         cat = canonical_code(self.category)
-    
+
         if cat and cat not in ("all", "other"):
             conds.append(("category", "$eq", cat))
         if self.platform and self.platform.lower() != "all":
@@ -36,7 +37,7 @@ class SearchFilters:
             conds.append(("updated_at", "$gte", int(time.time()) - int(self.max_age_days) * 86400))
         return conds
 
-    def where(self) -> Optional[Dict[str, Any]]:
+    def where(self) -> dict[str, Any] | None:
         clauses = [{f: {op: v}} for f, op, v in self._conditions()]
         if not clauses:
             return None

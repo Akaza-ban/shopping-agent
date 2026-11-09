@@ -16,7 +16,7 @@ class DealFinderAgent:
         discounted = sorted(
             (p for p in products if p.discountPercent > 0 and self._saving(p) > 0),
             key=lambda p: (p.discountPercent, self._saving(p)),
-            reverse=True
+            reverse=True,
         )
         if not discounted:
             state.search_notes.append(

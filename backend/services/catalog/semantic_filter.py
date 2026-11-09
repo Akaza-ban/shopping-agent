@@ -1,11 +1,10 @@
 import json
 import logging
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from integrations.llm import get_chat_model
-from integrations.llm import ask_llm, parse_llm_json
+from integrations.llm import ask_llm, get_chat_model, parse_llm_json
 from shared.exceptions import LLMError, LLMResponseError
 
 logger = logging.getLogger("semantic_filter")
@@ -13,7 +12,7 @@ logger = logging.getLogger("semantic_filter")
 PRODUCT_ONTOLOGY_SYSTEM_PROMPT = """Bạn là chuyên gia thẩm định dữ liệu thương mại điện tử cấp cao (E-commerce Product Ontology Arbiter).
 Nhiệm vụ của bạn là phân tích ngữ nghĩa sâu sắc để xác định các sản phẩm cào về từ sàn có đúng là ĐỐI TƯỢNG CHÍNH mà người dùng muốn tìm hay không.
 
- BẢN THỂ HỌC PHÂN LOẠI (ONTOLOGY REASONING RULES) 
+ BẢN THỂ HỌC PHÂN LOẠI (ONTOLOGY REASONING RULES)
 1. THỰC THỂ NGUYÊN CHIẾC ĐỘC LẬP (PRIMARY STANDALONE ENTITY):
    - Là bản thân sản phẩm hoàn chỉnh, có khả năng hoạt động/sử dụng độc lập đúng như nhu cầu cốt lõi của người mua.
    - Ví dụ:
@@ -47,10 +46,13 @@ BẮT BUỘC trả về JSON strictly theo định dạng sau (không viết b�
 Chỉ trả về đúng hai trường trên, không giải thích (câu trả lời càng ngắn càng tốt để giảm độ trễ)."""
 
 
-def _user_prompt(query: str, products: List[Dict[str, Any]], accessory_search: bool = False) -> str:
+def _user_prompt(query: str, products: list[dict[str, Any]], accessory_search: bool = False) -> str:
     """Chỉ gửi id, tên, giá, sàn (tiết kiệm token và giảm độ trễ)."""
-    intent = ("\nNgười dùng CHỦ ĐÍCH tìm phụ kiện / vật tư này (quy tắc 5): giữ đúng loại phụ kiện đó, loại mặt hàng khác loại."
-              if accessory_search else "")
+    intent = (
+        "\nNgười dùng CHỦ ĐÍCH tìm phụ kiện / vật tư này (quy tắc 5): giữ đúng loại phụ kiện đó, loại mặt hàng khác loại."
+        if accessory_search
+        else ""
+    )
     compact_items = [
         {
             "id": str(p.get("id")),
@@ -69,13 +71,9 @@ Hãy thẩm định theo các quy tắc bản thể học và trả về JSON.""
 
 
 class LLMSemanticFilter:
-
     async def filter_products(
-        self,
-        query: str,
-        products: List[Dict[str, Any]],
-        criteria: Optional[Any] = None
-    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        self, query: str, products: list[dict[str, Any]], criteria: Any | None = None
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Chỉ giữ đúng thứ người dùng tìm: máy chính (bỏ phụ kiện ăn theo, hàng mô hình), hoặc đúng loại phụ kiện
         khi người dùng chủ đích tìm phụ kiện (bỏ hàng khác loại); LLM lỗi thì giữ nguyên.
@@ -96,12 +94,16 @@ class LLMSemanticFilter:
             return products, {"is_target_available_on_market": True, "used_llm": False, "error": str(err)}
 
     @staticmethod
-    async def _judge(chat_model, query: str, products: List[Dict[str, Any]],
-                     accessory_search: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        raw = await ask_llm(chat_model, [
-            SystemMessage(content=PRODUCT_ONTOLOGY_SYSTEM_PROMPT),
-            HumanMessage(content=_user_prompt(query, products, accessory_search)),
-        ])
+    async def _judge(
+        chat_model, query: str, products: list[dict[str, Any]], accessory_search: bool = False
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        raw = await ask_llm(
+            chat_model,
+            [
+                SystemMessage(content=PRODUCT_ONTOLOGY_SYSTEM_PROMPT),
+                HumanMessage(content=_user_prompt(query, products, accessory_search)),
+            ],
+        )
         parsed = parse_llm_json(raw)
         ids = parsed.get("matched_product_ids", [])
         if not isinstance(ids, list):

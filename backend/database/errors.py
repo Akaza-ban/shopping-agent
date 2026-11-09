@@ -1,4 +1,5 @@
 """Ranh giới lỗi của tầng database: SQLAlchemy chỉ được biết đến bên trong database/."""
+
 import functools
 import inspect
 
@@ -26,4 +27,5 @@ def _translate(method, label: str):
             return await method(*args, **kwargs)
         except SQLAlchemyError as e:
             raise DatabaseError(f"{label}: {e}") from e
+
     return wrapper

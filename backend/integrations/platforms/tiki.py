@@ -1,22 +1,31 @@
 """Tiki: API tìm kiếm /api/v2/products và API chi tiết /api/v2/products/{id}."""
+
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
 
 from core.state import UniversalSearchCriteria
-from shared.categories import tiki_path_from_breadcrumbs
-from integrations.platforms.errors import CRAWL_ERRORS
 from integrations.platforms.base import PlatformAdapter
-from integrations.platforms.common import BROWSER_UA, canonical_spec_label, clean_text, strip_attribute_terms, within_price
+from integrations.platforms.common import (
+    BROWSER_UA,
+    canonical_spec_label,
+    clean_text,
+    strip_attribute_terms,
+    within_price,
+)
+from integrations.platforms.errors import CRAWL_ERRORS
+from shared.categories import tiki_path_from_breadcrumbs
 
 logger = logging.getLogger("platforms.tiki")
 
 API_HEADERS = {"User-Agent": BROWSER_UA, "Accept": "application/json, text/plain, */*", "Referer": "https://tiki.vn/"}
-def parse_tiki_detail(data: Dict[str, Any]) -> Dict[str, Any]:
+
+
+def parse_tiki_detail(data: dict[str, Any]) -> dict[str, Any]:
     """Đọc JSON chi tiết sản phẩm Tiki."""
-    specs: Dict[str, str] = {}
+    specs: dict[str, str] = {}
     for group in data.get("specifications") or []:
         for attr in group.get("attributes") or []:
             name = clean_text(str(attr.get("name", "")))
@@ -38,7 +47,7 @@ def parse_tiki_detail(data: Dict[str, Any]) -> Dict[str, Any]:
     return {"specs": specs, "warranty": warranty, "returnPolicy": return_policy}
 
 
-def _tiki_id(product: Dict[str, Any]) -> Optional[str]:
+def _tiki_id(product: dict[str, Any]) -> str | None:
     tiki_id = str(product.get("id", "")).replace("tiki-", "")
     return tiki_id if tiki_id.isdigit() else None
 
@@ -63,8 +72,10 @@ class TikiAdapter(PlatformAdapter):
                 notes.append(f"{self.name}: không có kết quả cho '{keyword}', đã tìm rộng hơn với '{stripped}'.")
         return products
 
-    async def _search_once(self, keyword: str, criteria: Optional[UniversalSearchCriteria], limit: int) -> List[Dict[str, Any]]:
-        products: List[Dict[str, Any]] = []
+    async def _search_once(
+        self, keyword: str, criteria: UniversalSearchCriteria | None, limit: int
+    ) -> list[dict[str, Any]]:
+        products: list[dict[str, Any]] = []
         # Lấy dư vì nhiều kết quả sẽ bị loại ở bước lọc phụ kiện/giá
         params = {"q": keyword, "limit": max(limit * 3, 20)}
         if criteria and (criteria.min_price or criteria.max_price):
@@ -83,24 +94,26 @@ class TikiAdapter(PlatformAdapter):
                 rating = float(item.get("rating_average") or 0.0)  # 0 = chưa có đánh giá
                 reviews_count = item.get("review_count") or 0
                 url_path = item.get("url_path") or ""
-                products.append({
-                    **self.product_base(criteria),
-                    "id": f"tiki-{item.get('id', '')}",
-                    "name": str(item.get("name", "")).strip(),
-                    "category": criteria.category if criteria else "all",  # ngành hàng thật: CategoryResolver
-                    "sourceCategoryPath": cat_path,
-                    "sourceCategoryName": cat_name,
-                    "aiMatchScore": 95 if rating >= 4.5 else 85,
-                    "originalPrice": float(item.get("original_price") or curr_price),
-                    "currentPrice": curr_price,
-                    "discountPercent": int(item.get("discount_rate") or 0),
-                    "rating": rating,
-                    "reviewsCount": f"{reviews_count} đánh giá",
-                    "sku": str(item.get("sku") or f"TIKI-{item.get('id')}"),
-                    "image": item.get("thumbnail_url") or "",
-                    "aiSummary": f"Sản phẩm thực tế trên Tiki: {item.get('name')}. Đánh giá {rating}/5 với {reviews_count} lượt mua.",
-                    "externalUrl": f"https://tiki.vn/{url_path}" if url_path else "https://tiki.vn",
-                })
+                products.append(
+                    {
+                        **self.product_base(criteria),
+                        "id": f"tiki-{item.get('id', '')}",
+                        "name": str(item.get("name", "")).strip(),
+                        "category": criteria.category if criteria else "all",  # ngành hàng thật: CategoryResolver
+                        "sourceCategoryPath": cat_path,
+                        "sourceCategoryName": cat_name,
+                        "aiMatchScore": 95 if rating >= 4.5 else 85,
+                        "originalPrice": float(item.get("original_price") or curr_price),
+                        "currentPrice": curr_price,
+                        "discountPercent": int(item.get("discount_rate") or 0),
+                        "rating": rating,
+                        "reviewsCount": f"{reviews_count} đánh giá",
+                        "sku": str(item.get("sku") or f"TIKI-{item.get('id')}"),
+                        "image": item.get("thumbnail_url") or "",
+                        "aiSummary": f"Sản phẩm thực tế trên Tiki: {item.get('name')}. Đánh giá {rating}/5 với {reviews_count} lượt mua.",
+                        "externalUrl": f"https://tiki.vn/{url_path}" if url_path else "https://tiki.vn",
+                    }
+                )
                 if len(products) >= limit:
                     break
         except CRAWL_ERRORS as e:
@@ -131,8 +144,12 @@ class TikiAdapter(PlatformAdapter):
         if not data.get("price") and in_stock is not False:
             return None
         price = float(data["price"]) if data.get("price") else None
-        return {"currentPrice": price, "originalPrice": float(data.get("list_price") or price or 0) or None,
-                "inStock": in_stock, "sourceCategoryPath": tiki_path_from_breadcrumbs(data.get("breadcrumbs"))}
+        return {
+            "currentPrice": price,
+            "originalPrice": float(data.get("list_price") or price or 0) or None,
+            "inStock": in_stock,
+            "sourceCategoryPath": tiki_path_from_breadcrumbs(data.get("breadcrumbs")),
+        }
 
     def category_source(self, product):
         path = str(product.get("sourceCategoryPath") or "").strip("/")

@@ -1,13 +1,14 @@
 """Bồi đắp thông tin chi tiết cho sản phẩm từ trang chi tiết của sàn (Mức 2 - tư vấn mua sắm)."""
-import time
+
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any
 
 import httpx
 
-from integrations.platforms.errors import CRAWL_ERRORS
 from integrations.platforms import get_platform
+from integrations.platforms.errors import CRAWL_ERRORS
 
 logger = logging.getLogger("product_enricher")
 
@@ -19,22 +20,22 @@ class ProductEnricher:
     def __init__(self, concurrency: int = 6, timeout: float = 6.0):
         self.concurrency = concurrency
         self.timeout = timeout
-        self._cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._pending: set = set()  # lần tải vượt thời gian chờ, tiếp tục chạy ở nền
         self._ssl_context = httpx.create_ssl_context()
 
-    def _cache_get(self, key: str) -> Optional[Dict[str, Any]]:
+    def _cache_get(self, key: str) -> dict[str, Any] | None:
         hit = self._cache.get(key)
         if hit and time.time() - hit[0] < DETAIL_CACHE_TTL_SECONDS:
             return hit[1]
         return None
 
     @staticmethod
-    def _cache_key(product: Dict[str, Any]) -> Optional[str]:
+    def _cache_key(product: dict[str, Any]) -> str | None:
         platform = get_platform(product.get("platform"))
         return platform.detail_cache_key(product) if platform else None
 
-    async def _fetch_detail(self, client: httpx.AsyncClient, product: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def _fetch_detail(self, client: httpx.AsyncClient, product: dict[str, Any]) -> dict[str, Any] | None:
         platform, key = get_platform(product.get("platform")), self._cache_key(product)
         if not platform or not key:
             return None
@@ -47,7 +48,7 @@ class ProductEnricher:
             self._cache[key] = (time.time(), detail)
         return detail
 
-    async def fetch_current_price(self, product: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    async def fetch_current_price(self, product: dict[str, Any]) -> dict[str, float] | None:
         """Giá bán hiện tại đọc trực tiếp từ sàn (không qua cache), dùng cho theo dõi giá; None nếu không đọc được."""
         platform = get_platform(product.get("platform"))
         if not platform:
@@ -60,10 +61,14 @@ class ProductEnricher:
         return None
 
     @staticmethod
-    def merge_detail(product: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
+    def merge_detail(product: dict[str, Any], detail: dict[str, Any]) -> dict[str, Any]:
         merged = dict(product)
         specs = merged.get("specs")
-        specs = dict(specs) if isinstance(specs, dict) else ({"Tóm tắt": specs} if isinstance(specs, str) and specs.strip() else {})
+        specs = (
+            dict(specs)
+            if isinstance(specs, dict)
+            else ({"Tóm tắt": specs} if isinstance(specs, str) and specs.strip() else {})
+        )
         for k, v in (detail.get("specs") or {}).items():
             specs[k] = v
         merged["specs"] = specs
@@ -78,10 +83,11 @@ class ProductEnricher:
         merged["detailFetched"] = bool(detail.get("specs"))
         return merged
 
-    async def _fetch_many(self, products: List[Dict[str, Any]], indices: List[int], results: List) -> None:
+    async def _fetch_many(self, products: list[dict[str, Any]], indices: list[int], results: list) -> None:
         """Tải các trang chi tiết; ghi dần vào `results` để bên gọi lấy được phần đã xong khi hết thời gian."""
         sem = asyncio.Semaphore(self.concurrency)
         async with httpx.AsyncClient(follow_redirects=True, timeout=self.timeout, verify=self._ssl_context) as client:
+
             async def run_one(idx: int):
                 async with sem:
                     detail = await self._fetch_detail(client, products[idx])
@@ -91,22 +97,19 @@ class ProductEnricher:
 
     async def enrich(
         self,
-        products: List[Dict[str, Any]],
+        products: list[dict[str, Any]],
         max_items: int = 10,
-        budget_seconds: Optional[float] = None,
-    ) -> List[Dict[str, Any]]:
+        budget_seconds: float | None = None,
+    ) -> list[dict[str, Any]]:
         """Thêm thông số, bảo hành, đánh giá từ trang chi tiết cho `max_items` sản phẩm đầu; hết `budget_seconds` thì trả phần đã xong, phần còn lại tải ở nền."""
         if not products:
             return products
-        targets = [
-            i for i, p in enumerate(products[:max_items])
-            if not p.get("detailFetched") and self._cache_key(p)
-        ]
+        targets = [i for i, p in enumerate(products[:max_items]) if not p.get("detailFetched") and self._cache_key(p)]
         if not targets:
             return products
 
-        results: List[Tuple[int, Optional[Dict[str, Any]]]] = []
-        to_fetch: List[int] = []
+        results: list[tuple[int, dict[str, Any] | None]] = []
+        to_fetch: list[int] = []
         for i in targets:
             cached = self._cache_get(self._cache_key(products[i]))
             if cached is not None:
@@ -120,7 +123,9 @@ class ProductEnricher:
             if not done:
                 self._pending.add(job)
                 job.add_done_callback(self._pending.discard)
-                logger.info(f"[Enricher] Hết {budget_seconds}s: {len(results)}/{len(targets)} trang đã xong, phần còn lại tải ở nền.")
+                logger.info(
+                    f"[Enricher] Hết {budget_seconds}s: {len(results)}/{len(targets)} trang đã xong, phần còn lại tải ở nền."
+                )
 
         enriched = list(products)
         ok = 0

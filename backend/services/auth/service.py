@@ -1,9 +1,9 @@
 """Xác thực người dùng: băm mật khẩu (bcrypt), kiểm tra dữ liệu đăng ký, tạo / băm token phiên, giới hạn số lần đăng nhập sai liên tiếp."""
+
 import hashlib
 import re
 import secrets
 import time
-from typing import Dict, List, Optional, Tuple
 
 import bcrypt
 
@@ -20,7 +20,7 @@ def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
 
 
-def validate_registration(email: str, password: str, display_name: str) -> List[str]:
+def validate_registration(email: str, password: str, display_name: str) -> list[str]:
     """Trả về danh sách lỗi (rỗng = hợp lệ)."""
     errors = []
     if not EMAIL_RE.match(normalize_email(email)):
@@ -32,7 +32,7 @@ def validate_registration(email: str, password: str, display_name: str) -> List[
     return errors
 
 
-def validate_password(password: str) -> List[str]:
+def validate_password(password: str) -> list[str]:
     errors = []
     if len(password or "") < MIN_PASSWORD_LENGTH:
         errors.append(f"Mật khẩu cần ít nhất {MIN_PASSWORD_LENGTH} ký tự.")
@@ -54,7 +54,7 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def new_token() -> Tuple[str, str]:
+def new_token() -> tuple[str, str]:
     """(token gửi cho trình duyệt, SHA-256 của token để lưu DB)."""
     token = secrets.token_urlsafe(32)
     return token, hash_token(token)
@@ -70,9 +70,9 @@ class LoginThrottle:
     def __init__(self, max_attempts: int = MAX_FAILED_ATTEMPTS, lockout_seconds: int = LOCKOUT_SECONDS):
         self.max_attempts = max_attempts
         self.lockout_seconds = lockout_seconds
-        self._failures: Dict[str, Tuple[int, float]] = {}
+        self._failures: dict[str, tuple[int, float]] = {}
 
-    def locked_for(self, email: str) -> Optional[int]:
+    def locked_for(self, email: str) -> int | None:
         """Số giây còn bị khóa, hoặc None nếu không bị khóa."""
         count, since = self._failures.get(email, (0, 0.0))
         if count < self.max_attempts:

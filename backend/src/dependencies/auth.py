@@ -1,5 +1,4 @@
 """Dependency xác thực cho các route FastAPI."""
-from typing import Optional
 
 from fastapi import Depends, Request
 
@@ -9,7 +8,7 @@ from services.auth.service import hash_token
 from shared.exceptions import AuthenticationError, PermissionDeniedError
 
 
-def _extract_token(request: Request) -> Optional[str]:
+def _extract_token(request: Request) -> str | None:
     header = request.headers.get("Authorization", "")
     if header.lower().startswith("bearer "):
         return header[7:].strip() or None

@@ -1,5 +1,4 @@
 """API theo dõi giá. Logic nằm ở application/alerts.py."""
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 
@@ -34,12 +33,12 @@ async def list_alert_checks(alert_id: str, limit: int = 20, user: UserModel = De
 
 
 @router.post("/check")
-async def check_price_alerts(req: Optional[CheckAlertsRequest] = None, user: UserModel = Depends(require_user)):
+async def check_price_alerts(req: CheckAlertsRequest | None = None, user: UserModel = Depends(require_user)):
     """Kiểm tra giá ngay các yêu cầu của người dùng, không chờ chu kỳ nền."""
     return await alerts.check_now(user, req.alert_ids if req else None)
 
 
 @router.get("/metrics", tags=["Price Alerts"])
-async def get_price_check_log(user_id: Optional[str] = None, limit: int = 50, user: UserModel = Depends(require_admin)):
+async def get_price_check_log(user_id: str | None = None, limit: int = 50, user: UserModel = Depends(require_admin)):
     """Nhật ký kiểm tra giá của toàn hệ thống (quản trị viên), lọc được theo người dùng."""
     return await alerts.system_check_log(user_id, limit)

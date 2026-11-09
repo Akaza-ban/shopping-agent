@@ -1,4 +1,5 @@
 """Các tối ưu độ trễ của một lượt tư vấn: model nhanh, giới hạn đọc trang chi tiết, RAG và cào chạy song song."""
+
 import asyncio
 import functools
 import time
@@ -8,14 +9,15 @@ import pytest
 import integrations.llm.client as config
 from core.tools.ecom_search import EcomSearchTool
 from core.tools.url_extractor import unsupported_site
-from services.catalog.enricher import ProductEnricher
 from integrations.platforms import PlatformAdapter, all_platforms
+from services.catalog.enricher import ProductEnricher
 
 
 def run_async(test):
     @functools.wraps(test)
     def wrapper(*args, **kwargs):
         return asyncio.run(test(*args, **kwargs))
+
     return wrapper
 
 
@@ -135,7 +137,9 @@ def no_cache(monkeypatch):
 @run_async
 async def test_rag_hit_cancels_the_crawl(no_cache, monkeypatch):
     tool = FakeSearch()
-    monkeypatch.setattr(no_cache.rag_service, "search", lambda **k: [{"id": "kho", "name": "Từ kho", "aiMatchScore": 90}])
+    monkeypatch.setattr(
+        no_cache.rag_service, "search", lambda **k: [{"id": "kho", "name": "Từ kho", "aiMatchScore": 90}]
+    )
     notes = []
 
     result = await tool.run("laptop", notes=notes)

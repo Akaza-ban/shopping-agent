@@ -1,6 +1,7 @@
 """Dữ liệu cá nhân đồng bộ giữa các thiết bị (hội thoại, sản phẩm đã lưu, lịch sử, tùy chọn giao diện)."""
+
 import json
-from typing import Any, Dict
+from typing import Any
 
 from database.models import UserModel
 from database.repositories import user_repository
@@ -15,12 +16,12 @@ def _check_key(key: str) -> None:
         raise NotFoundError("Khóa dữ liệu không hợp lệ.")
 
 
-async def get(user: UserModel, key: str) -> Dict[str, Any]:
+async def get(user: UserModel, key: str) -> dict[str, Any]:
     _check_key(key)
     return {"key": key, "value": await user_repository.get_data(user.id, key)}
 
 
-async def save(user: UserModel, key: str, body: bytes) -> Dict[str, Any]:
+async def save(user: UserModel, key: str, body: bytes) -> dict[str, Any]:
     """`body` là nội dung request dạng JSON {"value": ...}."""
     _check_key(key)
     if len(body) > MAX_USER_DATA_BYTES:

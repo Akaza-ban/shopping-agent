@@ -1,5 +1,6 @@
 import re
-from typing import List, Optional, Dict, Any, Literal, Union
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Trường mô tả nhu cầu của tiêu chí (không phải thông số sản phẩm) và các phần trong tên của chúng
@@ -7,24 +8,47 @@ _DESCRIPTIVE_FIELDS = ("usage_purpose", "priority", "brand_tier", "brands", "sug
 _USAGE_KEY_PARTS = set("usage_purpose".split("_"))
 _DESCRIPTIVE_KEY_PARTS = {part for name in _DESCRIPTIVE_FIELDS for part in name.split("_")}
 
+
 class UniversalSearchCriteria(BaseModel):
     """Tiêu chí tìm kiếm & phân tích tổng quát áp dụng cho mọi ngành hàng."""
-    category: Optional[str] = Field(default="all", description="Mã danh mục: laptops, phones, audio, home_appliances, fashion, beauty...")
-    category_name: Optional[str] = Field(default="Tất cả", description="Tên danh mục hiển thị tiếng Việt")
-    product_type: Optional[str] = Field(default=None, description="Loại sản phẩm cụ thể: chảo, laptop, tai nghe, điện thoại, giày...")
-    target_entity: Optional[str] = Field(default=None, description="Thực thể chính người dùng tìm kiếm: điện thoại, tivi, laptop, máy giặt, tai nghe, ốp lưng, máy ảnh...")
-    is_accessory: bool = Field(default=False, description="True nếu người dùng tìm phụ kiện/linh kiện/vật tư thay thế, False nếu tìm thiết bị/sản phẩm chính")
-    min_price: Optional[float] = Field(default=None, description="Mức giá tối thiểu (VND)")
-    max_price: Optional[float] = Field(default=None, description="Mức giá tối đa (VND)")
-    brands: Optional[List[str]] = Field(default_factory=list, description="Thương hiệu người dùng nêu đích danh")
-    brand_tier: Optional[str] = Field(default=None, description="Phân khúc thương hiệu: thương hiệu lớn, cao cấp, phổ thông...")
-    suggested_brands: Optional[List[str]] = Field(default_factory=list, description="Gợi ý các hãng uy tín nếu người dùng chưa chỉ định")
-    usage_purpose: Optional[str] = Field(default=None, description="Mục đích sử dụng: học tập, gaming, văn phòng, nấu ăn...")
-    priority: Optional[str] = Field(default="best_value", description="Tiêu chí ưu tiên: cheapest, best_rating, brand_reputation, best_performance")
-    target_platforms: Optional[List[str]] = Field(default_factory=lambda: ["all"], description="Sàn TMĐT người dùng nhắc tới: tiki, tgdd, dmx, hoặc all; sàn khác giữ nguyên tên để báo không hỗ trợ")
-    
-    attributes: Dict[str, Any] = Field(default_factory=dict, description="Thuộc tính đặc thù theo ngành hàng")
-    
+
+    category: str | None = Field(
+        default="all", description="Mã danh mục: laptops, phones, audio, home_appliances, fashion, beauty..."
+    )
+    category_name: str | None = Field(default="Tất cả", description="Tên danh mục hiển thị tiếng Việt")
+    product_type: str | None = Field(
+        default=None, description="Loại sản phẩm cụ thể: chảo, laptop, tai nghe, điện thoại, giày..."
+    )
+    target_entity: str | None = Field(
+        default=None,
+        description="Thực thể chính người dùng tìm kiếm: điện thoại, tivi, laptop, máy giặt, tai nghe, ốp lưng, máy ảnh...",
+    )
+    is_accessory: bool = Field(
+        default=False,
+        description="True nếu người dùng tìm phụ kiện/linh kiện/vật tư thay thế, False nếu tìm thiết bị/sản phẩm chính",
+    )
+    min_price: float | None = Field(default=None, description="Mức giá tối thiểu (VND)")
+    max_price: float | None = Field(default=None, description="Mức giá tối đa (VND)")
+    brands: list[str] | None = Field(default_factory=list, description="Thương hiệu người dùng nêu đích danh")
+    brand_tier: str | None = Field(
+        default=None, description="Phân khúc thương hiệu: thương hiệu lớn, cao cấp, phổ thông..."
+    )
+    suggested_brands: list[str] | None = Field(
+        default_factory=list, description="Gợi ý các hãng uy tín nếu người dùng chưa chỉ định"
+    )
+    usage_purpose: str | None = Field(
+        default=None, description="Mục đích sử dụng: học tập, gaming, văn phòng, nấu ăn..."
+    )
+    priority: str | None = Field(
+        default="best_value", description="Tiêu chí ưu tiên: cheapest, best_rating, brand_reputation, best_performance"
+    )
+    target_platforms: list[str] | None = Field(
+        default_factory=lambda: ["all"],
+        description="Sàn TMĐT người dùng nhắc tới: tiki, tgdd, dmx, hoặc all; sàn khác giữ nguyên tên để báo không hỗ trợ",
+    )
+
+    attributes: dict[str, Any] = Field(default_factory=dict, description="Thuộc tính đặc thù theo ngành hàng")
+
     # Từ khóa đã được làm sạch và tối ưu để search sàn TMĐT
     cleaned_query: str = Field(default="", description="Từ khóa tinh gọn phục vụ tìm kiếm")
 
@@ -69,6 +93,7 @@ class UniversalSearchCriteria(BaseModel):
     def _null_attributes_are_empty(cls, v):
         return {} if v is None else v
 
+
 class ProductItemModel(BaseModel):
     id: str
     name: str
@@ -86,20 +111,20 @@ class ProductItemModel(BaseModel):
     reviewsCount: str = "100+ đánh giá"
     sku: str = ""
     image: str = ""
-    specs: Optional[Union[Dict[str, Any], str]] = ""
+    specs: dict[str, Any] | str | None = ""
     aiSummary: str = ""
     warranty: str = "Chính hãng 12 tháng"
-    deliveryTag: Optional[str] = "Freeship"
+    deliveryTag: str | None = "Freeship"
     selected: bool = False
     externalUrl: str = ""
-    sourceCategoryPath: Optional[str] = None
-    sourceCategoryName: Optional[str] = None
-    updatedAt: Optional[str] = None
+    sourceCategoryPath: str | None = None
+    sourceCategoryName: str | None = None
+    updatedAt: str | None = None
     # Mức 2: dữ liệu từ trang chi tiết & kết quả xếp hạng
-    returnPolicy: Optional[str] = None
+    returnPolicy: str | None = None
     detailFetched: bool = False
-    matchReasons: List[str] = Field(default_factory=list)
-    attributeMatch: Dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown
+    matchReasons: list[str] = Field(default_factory=list)
+    attributeMatch: dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown
 
 
 class MessageItem(BaseModel):
@@ -107,29 +132,42 @@ class MessageItem(BaseModel):
     sender: Literal["user", "ai"]
     text: str
     timestamp: str
-    precision: Optional[str] = None
+    precision: str | None = None
+
 
 class AgentState(BaseModel):
     """Trạng thái chia sẻ giữa các Agent trong hệ thống."""
+
     session_id: str
     user_query: str
     # Ngôn ngữ câu trả lời của trợ lý (Cài đặt người dùng)
     language: Literal["vi", "en"] = "vi"
-    intent: Optional[Literal["smalltalk", "general_advice", "search_products", "compare_products", "parse_link", "find_deal", "out_of_scope"]] = None
-    criteria: Optional[UniversalSearchCriteria] = None
+    intent: (
+        Literal[
+            "smalltalk",
+            "general_advice",
+            "search_products",
+            "compare_products",
+            "parse_link",
+            "find_deal",
+            "out_of_scope",
+        ]
+        | None
+    ) = None
+    criteria: UniversalSearchCriteria | None = None
     # Router: câu hỏi có nói về sản phẩm đã đề xuất ở lượt trước không (None = không rõ, VD khi không có LLM)
-    about_previous_products: Optional[bool] = None
-    messages: List[MessageItem] = Field(default_factory=list)
-    found_products: List[ProductItemModel] = Field(default_factory=list)
-    recommended_product: Optional[ProductItemModel] = None
-    comparison_summary: Optional[str] = None
-    comparison_table: Optional[Dict[str, Any]] = None
+    about_previous_products: bool | None = None
+    messages: list[MessageItem] = Field(default_factory=list)
+    found_products: list[ProductItemModel] = Field(default_factory=list)
+    recommended_product: ProductItemModel | None = None
+    comparison_summary: str | None = None
+    comparison_table: dict[str, Any] | None = None
     comparison_markdown: str = ""
-    clarification: Optional[Dict[str, Any]] = None
-    search_notes: List[str] = Field(default_factory=list)
-    relaxed_search: Optional[str] = None
-    target_link: Optional[str] = None
-    platform_filter: Optional[str] = None
+    clarification: dict[str, Any] | None = None
+    search_notes: list[str] = Field(default_factory=list)
+    relaxed_search: str | None = None
+    target_link: str | None = None
+    platform_filter: str | None = None
     final_response: str = ""
-    suggested_questions: List[str] = Field(default_factory=list)
-    intermediate_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    suggested_questions: list[str] = Field(default_factory=list)
+    intermediate_steps: list[dict[str, Any]] = Field(default_factory=list)

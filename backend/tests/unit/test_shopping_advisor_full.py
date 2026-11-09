@@ -1,14 +1,15 @@
 import sys
+from unittest.mock import MagicMock, patch
+
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, ".")
 
-from core.agents.shopping_advisor import ShoppingAdvisorAgent
 from core.agents import advisor_context
-from core.state import AgentState, ProductItemModel, UniversalSearchCriteria
+from core.agents.shopping_advisor import ShoppingAdvisorAgent
 from core.prompts.advisor_prompts import ADVISOR_SYSTEM_PROMPT, ADVISOR_USER_PROMPT_TEMPLATE
+from core.state import AgentState, ProductItemModel, UniversalSearchCriteria
+
 
 @pytest.fixture
 def mock_products():
@@ -24,7 +25,7 @@ def mock_products():
             rating=4.8,
             reviewsCount="24 đánh giá",
             specs={"CPU": "Core i5 12450H", "RAM": "16GB", "SSD": "512GB", "Màn hình": "15.6 inch FHD"},
-            externalUrl="https://tiki.vn/p-1"
+            externalUrl="https://tiki.vn/p-1",
         ),
         ProductItemModel(
             id="p-2",
@@ -37,7 +38,7 @@ def mock_products():
             rating=4.7,
             reviewsCount="58 đánh giá",
             specs={"CPU": "Core i3 1215U", "RAM": "8GB", "SSD": "512GB", "Màn hình": "14 inch FHD"},
-            externalUrl="https://thegioididong.com/laptop/asus-vivobook-14"
+            externalUrl="https://thegioididong.com/laptop/asus-vivobook-14",
         ),
         ProductItemModel(
             id="p-3",
@@ -50,9 +51,10 @@ def mock_products():
             rating=4.6,
             reviewsCount="32 đánh giá",
             specs={"CPU": "Core i3 1215U", "RAM": "8GB", "SSD": "256GB"},
-            externalUrl="https://dienmayxanh.com/laptop/hp-15s"
-        )
+            externalUrl="https://dienmayxanh.com/laptop/hp-15s",
+        ),
     ]
+
 
 @pytest.mark.asyncio
 async def test_step2_prompt_formatting(mock_products):
@@ -60,12 +62,8 @@ async def test_step2_prompt_formatting(mock_products):
     state = AgentState(
         session_id="test-prompt",
         user_query="Tìm laptop học sinh sinh viên dưới 15 triệu",
-        criteria=UniversalSearchCriteria(
-            category="laptops",
-            max_price=15000000,
-            usage_purpose="học sinh sinh viên"
-        ),
-        found_products=mock_products
+        criteria=UniversalSearchCriteria(category="laptops", max_price=15000000, usage_purpose="học sinh sinh viên"),
+        found_products=mock_products,
     )
 
     context = advisor_context.build_context(state)
@@ -75,7 +73,7 @@ async def test_step2_prompt_formatting(mock_products):
         criteria_summary=context["criteria_summary"],
         chat_history_context=context.get("chat_history_context", ""),
         products_context=context["products_context"],
-        search_notes_context=context.get("search_notes_context", "")
+        search_notes_context=context.get("search_notes_context", ""),
     )
 
     assert "ShopAI Copilot" in ADVISOR_SYSTEM_PROMPT
@@ -85,22 +83,23 @@ async def test_step2_prompt_formatting(mock_products):
     assert "Asus Vivobook 14" in user_prompt
     assert "HP 15s" in user_prompt
 
+
 @pytest.mark.asyncio
 async def test_step4_zero_crash_fallback_on_error(mock_products):
     """Kiểm tra Bước 4: Fallback Zero-Crash khi mô hình LLM bị lỗi mạng hoặc timeout."""
     agent = ShoppingAdvisorAgent()
     state = AgentState(
-        session_id="test-fallback",
-        user_query="Tìm laptop học sinh sinh viên",
-        found_products=mock_products
+        session_id="test-fallback", user_query="Tìm laptop học sinh sinh viên", found_products=mock_products
     )
 
     # Giả lập LLM ném ngoại lệ Timeout/ConnectionError
     with patch("core.agents.shopping_advisor.get_chat_model") as mock_get_model:
         mock_model = MagicMock()
+
         async def mock_astream(messages):
             raise TimeoutError("Connection to Groq timed out")
             yield ""
+
         mock_model.astream = mock_astream
         mock_model.ainvoke.side_effect = TimeoutError("Connection to Groq timed out")
         mock_get_model.return_value = mock_model
@@ -116,15 +115,12 @@ async def test_step4_zero_crash_fallback_on_error(mock_products):
         assert len(result_state.messages) > 0
         assert result_state.recommended_product.id == "p-1"
 
+
 @pytest.mark.asyncio
 async def test_step3_live_or_mock_llm_execution(mock_products):
     """Kiểm tra Bước 3: Gọi LLM thành công khi có kết nối."""
     agent = ShoppingAdvisorAgent()
-    state = AgentState(
-        session_id="test-live-llm",
-        user_query="Tư vấn mua laptop học tập",
-        found_products=mock_products
-    )
+    state = AgentState(session_id="test-live-llm", user_query="Tư vấn mua laptop học tập", found_products=mock_products)
 
     result_state = await agent.generate_response(state)
 

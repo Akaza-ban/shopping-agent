@@ -2,6 +2,7 @@
 Cấu hình chung cho pytest: các test API cũ (viết trước khi có đăng nhập) chạy như một quản trị viên đã đăng nhập.
 tests/test_auth.py kiểm thử xác thực thật nên không áp dụng.
 """
+
 import gc
 from types import SimpleNamespace
 
@@ -19,12 +20,24 @@ def _release_llm_clients():
 
 
 @pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    # Bộ đếm tần suất là biến toàn cục: xóa trước / sau mỗi test để test này không làm test sau nhận 429
+    from src.dependencies.rate_limit import LIMITERS
+
+    for limiter in LIMITERS.values():
+        limiter.clear()
+    yield
+    for limiter in LIMITERS.values():
+        limiter.clear()
+
+
+@pytest.fixture(autouse=True)
 def _logged_in_user(request):
     if request.module.__name__.endswith("test_auth"):
         yield
         return
+    from src.dependencies.auth import require_admin, require_user
     from src.main import app
-    from src.dependencies.auth import require_user, require_admin
 
     app.dependency_overrides[require_user] = lambda: TEST_USER
     app.dependency_overrides[require_admin] = lambda: TEST_USER
@@ -87,6 +100,7 @@ def _offline_category_resolver(monkeypatch):
 def _fixed_category_floors():
     """Ngưỡng giá theo ngành thường tính từ kho thật; test dùng giá trị cố định để không phụ thuộc dữ liệu."""
     from services.pricing.category_floors import category_floors
+
     saved = dict(category_floors._floors)
     category_floors.set({"laptops": 2_000_000.0, "phones": 500_000.0})
     yield category_floors

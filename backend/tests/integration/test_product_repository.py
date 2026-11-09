@@ -1,17 +1,16 @@
-import sys
-import io
 import asyncio
-import json
+import sys
+
 import pytest
-from datetime import datetime, timedelta
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 sys.path.insert(0, ".")
 
-from database.connection import init_db, close_db, async_session
+from database.connection import close_db, init_db
 from database.repositories import product_repository
+
 
 @pytest.mark.anyio
 async def test_upsert_new_products():
@@ -36,7 +35,7 @@ async def test_upsert_new_products():
             "aiSummary": "iPhone 18 Pro Max chính hãng TGDĐ",
             "warranty": "Chính hãng 1 đổi 1",
             "deliveryTag": "Giao nhanh 2h",
-            "externalUrl": "https://www.thegioididong.com/dtdd/iphone-18"
+            "externalUrl": "https://www.thegioididong.com/dtdd/iphone-18",
         },
         {
             "id": "dmx-repo-test-2",
@@ -55,8 +54,8 @@ async def test_upsert_new_products():
             "aiSummary": "Tủ lạnh Toshiba tiết kiệm điện",
             "warranty": "Bảo hành 2 năm ĐMX",
             "deliveryTag": "Miễn phí lắp đặt",
-            "externalUrl": "https://www.dienmayxanh.com/tu-lanh-toshiba"
-        }
+            "externalUrl": "https://www.dienmayxanh.com/tu-lanh-toshiba",
+        },
     ]
 
     saved = await product_repository.upsert_products(sample_products)
@@ -69,6 +68,7 @@ async def test_upsert_new_products():
     history_1 = await product_repository.get_price_history("tgdd-repo-test-1")
     assert len(history_1) >= 1
     assert history_1[0]["price"] == 41990000.0
+
 
 @pytest.mark.anyio
 async def test_upsert_price_change_tracking():
@@ -88,7 +88,7 @@ async def test_upsert_price_change_tracking():
         "discountPercent": 7,
         "rating": 4.8,
         "reviewsCount": "Đã bán 500",
-        "externalUrl": "https://www.thegioididong.com/laptop-asus"
+        "externalUrl": "https://www.thegioididong.com/laptop-asus",
     }
 
     # Lần 1: Nạp sản phẩm giá 26tr
@@ -113,6 +113,7 @@ async def test_upsert_price_change_tracking():
     assert prod is not None
     assert prod["currentPrice"] == 24000000.0
 
+
 @pytest.mark.anyio
 async def test_search_cache_hit_and_miss():
     """Kiểm tra cơ chế lưu và truy xuất nhanh kết quả tìm kiếm từ cache."""
@@ -131,7 +132,7 @@ async def test_search_cache_hit_and_miss():
             "originalPrice": 50000000.0,
             "currentPrice": 48990000.0,
             "discountPercent": 2,
-            "externalUrl": "https://www.thegioididong.com/macbook-pro-m3"
+            "externalUrl": "https://www.thegioididong.com/macbook-pro-m3",
         }
     ]
 
@@ -153,6 +154,7 @@ async def test_search_cache_hit_and_miss():
     miss_q = await product_repository.get_cached_search("từ khóa chưa từng tìm", "all")
     assert miss_q is None
 
+
 @pytest.mark.anyio
 async def test_search_cache_expiration():
     """Kiểm tra cache quá hạn sẽ không được trả về (Cache Miss)."""
@@ -167,7 +169,7 @@ async def test_search_cache_expiration():
             "category": "home_appliances",
             "platform": "dmx",
             "platformName": "Điện Máy Xanh",
-            "currentPrice": 200000.0
+            "currentPrice": 200000.0,
         }
     ]
 
@@ -178,7 +180,9 @@ async def test_search_cache_expiration():
     cached = await product_repository.get_cached_search(query, platform)
     assert cached is None
 
+
 if __name__ == "__main__":
+
     async def main():
         print("=== TEST STEP 2: PRODUCT REPOSITORY ===")
         await test_upsert_new_products()
@@ -193,4 +197,3 @@ if __name__ == "__main__":
         print("\n=== ALL STEP 2 TESTS PASSED 100%! ===")
 
     asyncio.run(main())
-

@@ -1,14 +1,17 @@
 """Chỉ mục BM25 Okapi trong RAM cho toàn bộ tài liệu của collection (vài nghìn sản phẩm)."""
+
 import math
 from collections import Counter
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from services.rag.text import index_tokens, strip_accents, words
 
-Meta = Dict[str, Any]
+Meta = dict[str, Any]
+
 
 class BM25Index:
-    def __init__(self, ids: List[str], texts: List[str], metas: List[Meta], k1: float = 1.5, b: float = 0.75):
+    def __init__(self, ids: list[str], texts: list[str], metas: list[Meta], k1: float = 1.5, b: float = 0.75):
         self.ids = ids
         self.metas = metas
         self.k1, self.b = k1, b
@@ -23,7 +26,7 @@ class BM25Index:
         n = len(self._docs)
         self._idf = {t: math.log(1 + (n - f + 0.5) / (f + 0.5)) for t, f in df.items()}
 
-    def top(self, terms: List[str], n: int, keep: Optional[Callable[[Meta], bool]] = None) -> List[str]:
+    def top(self, terms: list[str], n: int, keep: Callable[[Meta], bool] | None = None) -> list[str]:
         """Id của tối đa n tài liệu điểm cao nhất (điểm > 0) thỏa `keep`."""
         tokens = index_tokens(terms)
         scored = []
@@ -41,11 +44,11 @@ class BM25Index:
         norm = 1 - self.b + self.b * self._lengths[i] / self._avg_len
         return self._idf[token] * tf * (self.k1 + 1) / (tf + self.k1 * norm)
 
-    def meta(self, pid: str) -> Optional[Meta]:
+    def meta(self, pid: str) -> Meta | None:
         i = self._pos.get(pid)
         return self.metas[i] if i is not None else None
 
-    def coverage(self, pid: str, terms: List[str]) -> float:
+    def coverage(self, pid: str, terms: list[str]) -> float:
         """Tỉ lệ từ khóa truy vấn có trong tài liệu (có dấu hoặc không dấu)."""
         i = self._pos.get(pid)
         if i is None or not terms:

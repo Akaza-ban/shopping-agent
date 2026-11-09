@@ -26,7 +26,6 @@ Nguyên tắc dùng:
         ├── ValidationFailedError    422
         └── RateLimitedError         429
 """
-from typing import Dict, Optional
 
 
 class AppError(Exception):
@@ -73,7 +72,7 @@ class DomainError(AppError):
 
     status_code: int = 400
 
-    def __init__(self, message: str, headers: Optional[Dict[str, str]] = None):
+    def __init__(self, message: str, headers: dict[str, str] | None = None):
         super().__init__(message)
         self.message = message
         self.headers = headers

@@ -2,10 +2,12 @@ import logging
 
 from integrations.platforms import display_names
 from shared.exceptions import CrawlerError
+
 from ..state import AgentState, ProductItemModel
 from ..tools.url_extractor import UrlExtractorTool, unsupported_site
 
 logger = logging.getLogger("link_parser_agent")
+
 
 class LinkParserAgent:
     """Agent chịu trách nhiệm bóc tách dữ liệu từ đường dẫn link sản phẩm."""
@@ -54,7 +56,7 @@ class LinkParserAgent:
         parsed_product = ProductItemModel(**parsed_data)
         state.found_products = [parsed_product]
         state.recommended_product = parsed_product
-        
+
         state.final_response = (
             f"**Đã trích xuất thông tin sản phẩm thành công:**\n\n"
             f"- **Tên:** {parsed_product.name}\n"

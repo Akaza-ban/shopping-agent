@@ -1,4 +1,5 @@
 """TGDĐ / ĐMX: giá đang hiển thị trên trang chi tiết và tìm theo số model khi trang tìm kiếm rỗng."""
+
 import asyncio
 import json
 
@@ -6,8 +7,12 @@ from integrations.platforms.mwg import TGDD, _token_pattern, parse_mwg_price
 
 
 def _detail_page(shown: str, struck: str, jsonld_price: int) -> str:
-    ld = {"@context": "https://schema.org", "@type": "Product", "name": "Máy giặt Aqua 7.2 kg",
-          "offers": {"@type": "Offer", "price": jsonld_price, "priceCurrency": "VND"}}
+    ld = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "Máy giặt Aqua 7.2 kg",
+        "offers": {"@type": "Offer", "price": jsonld_price, "priceCurrency": "VND"},
+    }
     return f"""<html><head><script type="application/ld+json">{json.dumps(ld)}</script></head><body>
       <div class="bg-error-50"><div class="gap-24px flex"><div class="flex flex-col">
         <span class="text-24 font-700 text-red-5">{shown}<!-- -->đ</span>
@@ -50,7 +55,9 @@ def test_token_pattern_matches_model_numbers():
 def test_model_query_falls_back_to_category_page(monkeypatch):
     """'iphone 16' ra trang rỗng -> bỏ dần từ cuối ('iphone' = trang danh mục), chỉ giữ thẻ có số 16."""
     calls = []
-    catalog = [{"name": n} for n in ["iPhone 17 Pro 256GB", "iPhone 16 Plus 128GB", "iPhone 16 128GB", "iPhone 16e 128GB"]]
+    catalog = [
+        {"name": n} for n in ["iPhone 17 Pro 256GB", "iPhone 16 Plus 128GB", "iPhone 16 128GB", "iPhone 16e 128GB"]
+    ]
 
     async def fake_listing(client, query):
         calls.append(query)

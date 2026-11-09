@@ -1,5 +1,4 @@
 """Dữ liệu vào của API theo dõi giá."""
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +9,7 @@ class AlertProduct(BaseModel):
     platform: str
     platformName: str = ""
     currentPrice: float
-    originalPrice: Optional[float] = None
+    originalPrice: float | None = None
     externalUrl: str = ""
     image: str = ""
 
@@ -21,4 +20,4 @@ class CreateAlertRequest(BaseModel):
 
 
 class CheckAlertsRequest(BaseModel):
-    alert_ids: Optional[List[str]] = None  # None = kiểm tra mọi yêu cầu đang theo dõi
+    alert_ids: list[str] | None = None  # None = kiểm tra mọi yêu cầu đang theo dõi

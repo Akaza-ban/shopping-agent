@@ -1,7 +1,8 @@
 """Giá tối thiểu hợp lý của từng ngành hàng, tính từ giá thật trong kho (thay cho con số viết tay)."""
+
 import logging
 import time
-from typing import Dict, Iterable, Optional, Tuple
+from collections.abc import Iterable
 
 from database.repositories import product_repository
 from shared.exceptions import DatabaseError
@@ -14,9 +15,9 @@ MIN_SAMPLES = 30
 REFRESH_SECONDS = 6 * 3600
 
 
-def compute_floors(rows: Iterable[Tuple[str, float]]) -> Dict[str, float]:
+def compute_floors(rows: Iterable[tuple[str, float]]) -> dict[str, float]:
     """(ngành hàng, giá) -> {ngành hàng: giá tối thiểu}."""
-    prices: Dict[str, list] = {}
+    prices: dict[str, list] = {}
     for category, price in rows:
         if category and category != "other" and price and price > 0:
             prices.setdefault(category, []).append(float(price))
@@ -31,13 +32,13 @@ def compute_floors(rows: Iterable[Tuple[str, float]]) -> Dict[str, float]:
 
 class CategoryFloors:
     def __init__(self):
-        self._floors: Dict[str, float] = {}
+        self._floors: dict[str, float] = {}
         self._updated_at = 0.0
 
-    def get(self, category: Optional[str]) -> Optional[float]:
+    def get(self, category: str | None) -> float | None:
         return self._floors.get(category or "")
 
-    def set(self, floors: Dict[str, float]) -> None:
+    def set(self, floors: dict[str, float]) -> None:
         self._floors = dict(floors)
         self._updated_at = time.time()
 

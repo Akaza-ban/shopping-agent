@@ -1,9 +1,10 @@
 """
 Ngôn ngữ trả lời theo Cài đặt người dùng: câu hỏi làm rõ, mức ngân sách, câu hỏi gợi ý và chỉ dẫn cho LLM.
 """
-from core.prompts.language import language_instruction
+
 from core.constants import SKIP_BUDGET_OPTION
 from core.flows import clarification, suggestions
+from core.prompts.language import language_instruction
 from core.state import AgentState, ProductItemModel, UniversalSearchCriteria
 from src.schemas.chat import ChatRequest
 
@@ -29,7 +30,9 @@ def test_budget_labels_translated_but_values_kept():
 
 def _clarify(language):
     state = AgentState(
-        session_id=f"test-lang-{language}", user_query="tìm laptop gaming", language=language,
+        session_id=f"test-lang-{language}",
+        user_query="tìm laptop gaming",
+        language=language,
         intent="search_products",
         criteria=UniversalSearchCriteria(category="laptops", product_type="laptop gaming", target_entity="laptop"),
     )
@@ -52,10 +55,18 @@ def test_clarification_in_vietnamese():
 
 def test_suggested_questions_follow_language():
     products = [
-        ProductItemModel(id=f"p{i}", name=f"Laptop Model {i}", platform="tiki", platformName="Tiki",
-                         currentPrice=20_000_000, originalPrice=20_000_000)
+        ProductItemModel(
+            id=f"p{i}",
+            name=f"Laptop Model {i}",
+            platform="tiki",
+            platformName="Tiki",
+            currentPrice=20_000_000,
+            originalPrice=20_000_000,
+        )
         for i in range(2)
     ]
-    en = suggestions.generate(AgentState(session_id="s-en", user_query="laptop", language="en", found_products=products))
+    en = suggestions.generate(
+        AgentState(session_id="s-en", user_query="laptop", language="en", found_products=products)
+    )
     vi = suggestions.generate(AgentState(session_id="s-vi", user_query="laptop", found_products=products))
     assert en[0].startswith("Compare") and vi[0].startswith("So sánh")

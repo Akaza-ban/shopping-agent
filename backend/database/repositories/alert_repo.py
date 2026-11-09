@@ -1,8 +1,11 @@
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
+
+from database.repositories.serialization import iso
+
 from ..connection import async_session
 from ..errors import raises_database_error
 from ..models import AlertModel, PriceCheckModel
@@ -10,8 +13,7 @@ from ..models import AlertModel, PriceCheckModel
 logger = logging.getLogger("alert_repo")
 
 
-def alert_to_dict(a: AlertModel) -> Dict[str, Any]:
-    iso = lambda d: d.isoformat() if d else None
+def alert_to_dict(a: AlertModel) -> dict[str, Any]:
     return {
         "id": a.id,
         "productId": a.product_id,
@@ -38,18 +40,17 @@ def alert_to_dict(a: AlertModel) -> Dict[str, Any]:
 
 @raises_database_error
 class AlertRepository:
-
     def __init__(self, session_factory=async_session):
         self.session_factory = session_factory
 
-    async def create(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create(self, data: dict[str, Any]) -> dict[str, Any]:
         async with self.session_factory() as session:
             alert = AlertModel(**data, created_at=datetime.utcnow())
             session.add(alert)
             await session.commit()
             return alert_to_dict(alert)
 
-    async def list(self, status: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def list(self, status: str | None = None, user_id: str | None = None) -> list[dict[str, Any]]:
         async with self.session_factory() as session:
             stmt = select(AlertModel).order_by(AlertModel.created_at.desc())
             if status:
@@ -59,7 +60,7 @@ class AlertRepository:
             res = await session.execute(stmt)
             return [alert_to_dict(a) for a in res.scalars().all()]
 
-    async def delete(self, alert_id: str, user_id: Optional[str] = None) -> bool:
+    async def delete(self, alert_id: str, user_id: str | None = None) -> bool:
         async with self.session_factory() as session:
             stmt = delete(AlertModel).where(AlertModel.id == alert_id)
             if user_id:
@@ -68,7 +69,7 @@ class AlertRepository:
             await session.commit()
             return (res.rowcount or 0) > 0
 
-    async def update(self, alert_id: str, **fields: Any) -> Optional[Dict[str, Any]]:
+    async def update(self, alert_id: str, **fields: Any) -> dict[str, Any] | None:
         async with self.session_factory() as session:
             alert = await session.get(AlertModel, alert_id)
             if not alert:
@@ -79,7 +80,7 @@ class AlertRepository:
             return alert_to_dict(alert)
 
 
-def check_to_dict(c: PriceCheckModel) -> Dict[str, Any]:
+def check_to_dict(c: PriceCheckModel) -> dict[str, Any]:
     return {
         "id": c.id,
         "alertId": c.alert_id,
@@ -90,34 +91,41 @@ def check_to_dict(c: PriceCheckModel) -> Dict[str, Any]:
         "outcome": c.outcome,
         "note": c.note or "",
         "latencyMs": c.latency_ms,
-        "checkedAt": c.checked_at.isoformat() if c.checked_at else None,
+        "checkedAt": iso(c.checked_at),
     }
 
 
 @raises_database_error
 class PriceCheckRepository:
-
     def __init__(self, session_factory=async_session, keep_per_alert: int = 100):
         self.session_factory = session_factory
         self.keep_per_alert = keep_per_alert
 
-    async def add(self, record: Dict[str, Any]) -> Dict[str, Any]:
+    async def add(self, record: dict[str, Any]) -> dict[str, Any]:
         async with self.session_factory() as session:
             check = PriceCheckModel(**record)
             session.add(check)
             await session.flush()
-            old_ids = (await session.execute(
-                select(PriceCheckModel.id)
-                .where(PriceCheckModel.alert_id == record["alert_id"])
-                .order_by(PriceCheckModel.id.desc())
-                .offset(self.keep_per_alert)
-            )).scalars().all()
+            old_ids = (
+                (
+                    await session.execute(
+                        select(PriceCheckModel.id)
+                        .where(PriceCheckModel.alert_id == record["alert_id"])
+                        .order_by(PriceCheckModel.id.desc())
+                        .offset(self.keep_per_alert)
+                    )
+                )
+                .scalars()
+                .all()
+            )
             if old_ids:
                 await session.execute(delete(PriceCheckModel).where(PriceCheckModel.id.in_(old_ids)))
             await session.commit()
             return check_to_dict(check)
 
-    async def list(self, user_id: Optional[str] = None, alert_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    async def list(
+        self, user_id: str | None = None, alert_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         async with self.session_factory() as session:
             q = select(PriceCheckModel).order_by(PriceCheckModel.id.desc()).limit(limit)
             if user_id:

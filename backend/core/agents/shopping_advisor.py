@@ -2,10 +2,11 @@
 
 Ngữ cảnh đưa vào prompt: advisor_context.py. Câu trả lời dựng sẵn khi LLM lỗi: advisor_fallback.py.
 """
+
 import asyncio
 import logging
 import time
-from typing import AsyncIterator, Dict
+from collections.abc import AsyncIterator
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -28,11 +29,11 @@ async def _stream_words(text: str, size: int = FALLBACK_WORDS_PER_CHUNK) -> Asyn
     """Phát câu trả lời dựng sẵn theo từng cụm vài từ để giao diện vẫn có hiệu ứng gõ chữ."""
     words = text.split(" ")
     for i in range(0, len(words), size):
-        yield " ".join(words[i:i + size]) + " "
+        yield " ".join(words[i : i + size]) + " "
         await asyncio.sleep(FALLBACK_CHUNK_DELAY_SECONDS)
 
 
-async def _stream_llm(chat_model, context: Dict[str, str], language: str) -> AsyncIterator[str]:
+async def _stream_llm(chat_model, context: dict[str, str], language: str) -> AsyncIterator[str]:
     """Token lời tư vấn của LLM theo prompt advisor."""
     user_prompt = ADVISOR_USER_PROMPT_TEMPLATE.format(
         user_query=context["user_query"],
@@ -78,13 +79,15 @@ class ShoppingAdvisorAgent:
                 yield chunk
 
         state.final_response = full_text.strip()
-        state.messages.append(MessageItem(
-            id=f"msg-ai-{int(time.time() * 1000)}",
-            sender="ai",
-            text=state.final_response,
-            timestamp="Vừa xong",
-            precision="99.0%" if chat_model else "95.0%"
-        ))
+        state.messages.append(
+            MessageItem(
+                id=f"msg-ai-{int(time.time() * 1000)}",
+                sender="ai",
+                text=state.final_response,
+                timestamp="Vừa xong",
+                precision="99.0%" if chat_model else "95.0%",
+            )
+        )
 
     async def generate_response(self, state: AgentState) -> AgentState:
         """Bản không stream: chạy hết stream rồi trả về state (cùng logic, kết quả như nhau)."""

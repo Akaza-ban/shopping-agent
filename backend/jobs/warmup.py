@@ -1,4 +1,5 @@
 """Làm ấm kho dữ liệu lúc khởi động: kho trống hoặc đã cũ thì cào các mặt hàng HOT ở nền."""
+
 import asyncio
 import logging
 

@@ -9,9 +9,11 @@
 Mỗi node đọc / sửa AgentState và phát event SSE (core/events.py) qua stream writer.
 Nghiệp vụ của từng bước nằm ở core/flows/ (hỏi làm rõ, tìm kiếm, gợi ý) và core/agents/.
 """
+
 import logging
 import time
-from typing import Any, AsyncIterator, Dict
+from collections.abc import AsyncIterator
+from typing import Any
 
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
@@ -33,7 +35,7 @@ from .tools.ecom_search import EcomSearchTool
 logger = logging.getLogger("graph")
 
 
-def _updates(state: AgentState) -> Dict[str, Any]:
+def _updates(state: AgentState) -> dict[str, Any]:
     """Node trả về toàn bộ các trường của state (agent con sửa state tại chỗ)."""
     return {name: getattr(state, name) for name in AgentState.model_fields}
 
@@ -56,7 +58,7 @@ class ShopAIAgentWorkflow:
         result = await self.graph.ainvoke(state)
         return AgentState(**result) if isinstance(result, dict) else result
 
-    async def execute_stream(self, state: AgentState) -> AsyncIterator[Dict[str, Any]]:
+    async def execute_stream(self, state: AgentState) -> AsyncIterator[dict[str, Any]]:
         """Chạy một lượt, phát dần các event SSE."""
         async for event in self.graph.astream(state, stream_mode="custom"):
             yield event
@@ -79,14 +81,18 @@ class ShopAIAgentWorkflow:
         g.add_edge(START, "load_session")
         g.add_edge("load_session", "route")
         g.add_edge("route", "clarify")
-        g.add_conditional_edges("clarify", self._next_after_clarify, {
-            "ask": "ask",
-            "smalltalk": "smalltalk",
-            "parse_link": "parse_link",
-            "search": "search",
-            "deal": "deal",
-            "respond": "respond",
-        })
+        g.add_conditional_edges(
+            "clarify",
+            self._next_after_clarify,
+            {
+                "ask": "ask",
+                "smalltalk": "smalltalk",
+                "parse_link": "parse_link",
+                "search": "search",
+                "deal": "deal",
+                "respond": "respond",
+            },
+        )
         g.add_edge("ask", "finalize")
         g.add_edge("smalltalk", "finalize")
         g.add_edge("parse_link", "respond")
@@ -112,12 +118,12 @@ class ShopAIAgentWorkflow:
         return "respond"
 
     # Các node
-    async def _node_load_session(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_load_session(self, state: AgentState) -> dict[str, Any]:
         if state.session_id:
             await session_memory.load_session_from_db(state.session_id)
         return {}
 
-    async def _node_route(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_route(self, state: AgentState) -> dict[str, Any]:
         """Hiểu câu hỏi: ý định + tiêu chí tìm kiếm; sàn chọn trên giao diện ghi đè sàn trong câu hỏi."""
         state = await self.orchestrator.route(state)
         if state.intent != "smalltalk":
@@ -127,14 +133,14 @@ class ShopAIAgentWorkflow:
             state.criteria = state.criteria.model_copy(update={"target_platforms": [platform]})
         return _updates(state)
 
-    async def _node_clarify(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_clarify(self, state: AgentState) -> dict[str, Any]:
         if state.intent == "smalltalk":
             return {}  # giữ nguyên câu hỏi làm rõ đang chờ (nếu có)
         clarification.apply_pending(state)
         clarification.maybe_ask(state)
         return _updates(state)
 
-    async def _node_ask(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_ask(self, state: AgentState) -> dict[str, Any]:
         """Trả lời ngay không cần tìm: câu hỏi làm rõ, hoặc câu chào hỏi / nói chuyện phiếm."""
         writer = get_stream_writer()
         if state.clarification:
@@ -142,7 +148,7 @@ class ShopAIAgentWorkflow:
         writer(events.token(state.final_response))
         return {}
 
-    async def _node_parse_link(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_parse_link(self, state: AgentState) -> dict[str, Any]:
         writer = get_stream_writer()
         writer(events.status("parsing_link", "Đang bóc tách thông tin và thẩm định liên kết sản phẩm..."))
         state = await self.link_parser.parse(state)
@@ -150,7 +156,7 @@ class ShopAIAgentWorkflow:
             writer(events.products(state.found_products))
         return _updates(state)
 
-    async def _node_search(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_search(self, state: AgentState) -> dict[str, Any]:
         writer = get_stream_writer()
         async for event in run_search(self.search_tool, state):
             writer(event)
@@ -158,7 +164,7 @@ class ShopAIAgentWorkflow:
             writer(events.products(state.found_products))
         return _updates(state)
 
-    async def _node_deal(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_deal(self, state: AgentState) -> dict[str, Any]:
         """Săn deal: cho sản phẩm vừa xem ở lượt trước (nếu câu hỏi không nêu sản phẩm mới), hoặc tìm mới."""
         writer = get_stream_writer()
         writer(events.status("finding_deal", "Đang săn các deal và mức giảm giá tốt nhất..."))
@@ -175,7 +181,7 @@ class ShopAIAgentWorkflow:
             writer(events.products(state.found_products))
         return _updates(state)
 
-    async def _node_compare(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_compare(self, state: AgentState) -> dict[str, Any]:
         if len(state.found_products) < 2:
             return {}
         writer = get_stream_writer()
@@ -185,38 +191,54 @@ class ShopAIAgentWorkflow:
             writer(events.comparison(state.comparison_summary, state.comparison_table))
         return _updates(state)
 
-    async def _node_respond(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_respond(self, state: AgentState) -> dict[str, Any]:
         writer = get_stream_writer()
         if state.intent == "parse_link" and not state.found_products and state.final_response:
             writer(events.token(state.final_response))
             return {}
-        writer(events.status("synthesizing", "Chuyên gia AI đang phân tích ưu nhược điểm và soạn lời khuyên..."
-                             if state.found_products else "Đang soạn câu trả lời..."))
+        writer(
+            events.status(
+                "synthesizing",
+                "Chuyên gia AI đang phân tích ưu nhược điểm và soạn lời khuyên..."
+                if state.found_products
+                else "Đang soạn câu trả lời...",
+            )
+        )
         async for token in self.advisor.generate_response_stream(state):
             writer(events.token(token))
         return _updates(state)
 
-    async def _node_finalize(self, state: AgentState) -> Dict[str, Any]:
+    async def _node_finalize(self, state: AgentState) -> dict[str, Any]:
         """Lưu lượt hội thoại (RAM + SQLite), phát câu hỏi gợi ý và event kết thúc."""
         if state.session_id and state.final_response:
             now_ms = int(time.time() * 1000)
             session_memory.save_turn(
                 session_id=state.session_id,
-                user_message=MessageItem(id=f"msg-user-{now_ms}", sender="user", text=state.user_query, timestamp="Vừa xong"),
-                ai_message=MessageItem(id=f"msg-ai-{now_ms + 1}", sender="ai", text=state.final_response, timestamp="Vừa xong"),
+                user_message=MessageItem(
+                    id=f"msg-user-{now_ms}", sender="user", text=state.user_query, timestamp="Vừa xong"
+                ),
+                ai_message=MessageItem(
+                    id=f"msg-ai-{now_ms + 1}", sender="ai", text=state.final_response, timestamp="Vừa xong"
+                ),
                 products=state.found_products,
-                criteria=state.criteria
+                criteria=state.criteria,
             )
 
         state.suggested_questions = suggestions.generate(state)
         writer = get_stream_writer()
         writer(events.suggestions(state.suggested_questions))
-        writer(events.done({
-            "session_id": state.session_id,
-            "intent": state.intent,
-            "recommended_product": state.recommended_product.model_dump() if state.recommended_product else None,
-            "clarification": state.clarification,
-            "relaxed_search": state.relaxed_search,
-            "search_notes": state.search_notes,
-        }))
+        writer(
+            events.done(
+                {
+                    "session_id": state.session_id,
+                    "intent": state.intent,
+                    "recommended_product": state.recommended_product.model_dump()
+                    if state.recommended_product
+                    else None,
+                    "clarification": state.clarification,
+                    "relaxed_search": state.relaxed_search,
+                    "search_notes": state.search_notes,
+                }
+            )
+        )
         return {"suggested_questions": state.suggested_questions}

@@ -7,6 +7,7 @@ from ..connection import Base
 
 class FeedbackModel(Base):
     """Góp ý / yêu cầu hỗ trợ người dùng gửi cho quản trị viên."""
+
     __tablename__ = "feedback_requests"
 
     id = Column(String, primary_key=True, index=True)

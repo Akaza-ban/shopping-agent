@@ -6,9 +6,11 @@
 
 run_search() là async generator: phát các event status / products trong lúc tìm, ghi kết quả vào state.found_products.
 """
+
 import logging
 import re
-from typing import Any, AsyncIterator, Dict, List, Tuple
+from collections.abc import AsyncIterator
+from typing import Any
 
 from services.catalog.ranker import rank_products, verifiable_attributes
 from shared.types import RawProduct
@@ -28,24 +30,26 @@ def widened_budget(max_price: float) -> float:
     return float(round(max_price * BUDGET_WIDEN_FACTOR / BUDGET_ROUND_TO) * BUDGET_ROUND_TO)
 
 
-def _strip_terms(text: str, terms: List[str]) -> str:
+def _strip_terms(text: str, terms: list[str]) -> str:
     for t in terms:
         if t:
             text = re.sub(re.escape(t), " ", text, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip()
 
 
-def relaxation_steps(criteria: UniversalSearchCriteria) -> List[Tuple[UniversalSearchCriteria, str]]:
+def relaxation_steps(criteria: UniversalSearchCriteria) -> list[tuple[UniversalSearchCriteria, str]]:
     """Các bước nới lỏng tiêu chí (cộng dồn), mỗi bước kèm mô tả đã nới gì.
 
     Thứ tự: bỏ thông số chi tiết -> nới ngân sách -> mở rộng sang hãng khác.
     """
-    steps: List[Tuple[UniversalSearchCriteria, str]] = []
+    steps: list[tuple[UniversalSearchCriteria, str]] = []
     current = criteria
-    changes: List[str] = []
+    changes: list[str] = []
     base_query = criteria.cleaned_query or criteria.product_type or criteria.target_entity or ""
 
-    attr_values = [str(v).strip() for v in (criteria.attributes or {}).values() if isinstance(v, str) and str(v).strip()]
+    attr_values = [
+        str(v).strip() for v in (criteria.attributes or {}).values() if isinstance(v, str) and str(v).strip()
+    ]
     if criteria.attributes:
         changes.append(f"bỏ yêu cầu {', '.join(attr_values)}" if attr_values else "bỏ yêu cầu thông số chi tiết")
         base_query = _strip_terms(base_query, attr_values)
@@ -71,19 +75,21 @@ def relaxation_steps(criteria: UniversalSearchCriteria) -> List[Tuple[UniversalS
     ]
 
 
-def _fully_verified(product: Dict[str, Any]) -> bool:
+def _fully_verified(product: dict[str, Any]) -> bool:
     status = product.get("attributeMatch") or {}
     return bool(status) and all(v == "verified" for v in status.values())
 
 
-def _needs_upsell(criteria: UniversalSearchCriteria, products: List[RawProduct]) -> bool:
+def _needs_upsell(criteria: UniversalSearchCriteria, products: list[RawProduct]) -> bool:
     """Có thông số bắt buộc và ngân sách, nhưng chưa sản phẩm nào xác nhận đúng thông số."""
-    return bool(verifiable_attributes(criteria) and criteria.max_price
-                and not any(_fully_verified(p) for p in products))
+    return bool(
+        verifiable_attributes(criteria) and criteria.max_price and not any(_fully_verified(p) for p in products)
+    )
 
 
-async def _search(tool: EcomSearchTool, query: str, criteria, notes: List[str],
-                  force_refresh: bool = False) -> List[RawProduct]:
+async def _search(
+    tool: EcomSearchTool, query: str, criteria, notes: list[str], force_refresh: bool = False
+) -> list[RawProduct]:
     return await tool.run(
         query=query,
         category=criteria.category if criteria else "all",
@@ -94,8 +100,9 @@ async def _search(tool: EcomSearchTool, query: str, criteria, notes: List[str],
     )
 
 
-async def _upsell(tool: EcomSearchTool, state: AgentState, search_query: str, products: List[RawProduct],
-                  widened: float, wanted: str) -> List[RawProduct]:
+async def _upsell(
+    tool: EcomSearchTool, state: AgentState, search_query: str, products: list[RawProduct], widened: float, wanted: str
+) -> list[RawProduct]:
     """Thêm sản phẩm ĐÚNG thông số nhưng vượt ngân sách (tới widened) vào danh sách, ghi chú cho Advisor."""
     criteria = state.criteria
     alt = await _search(tool, search_query, criteria.model_copy(update={"max_price": widened}), [], force_refresh=True)
@@ -125,10 +132,9 @@ async def run_search(tool: EcomSearchTool, state: AgentState) -> AsyncIterator[e
     if not raw_products and can_relax:
         for relaxed, description in relaxation_steps(criteria):
             yield events.status(
-                "relaxing",
-                f"Không có sản phẩm khớp hoàn toàn yêu cầu, đang tìm phương án gần nhất ({description})..."
+                "relaxing", f"Không có sản phẩm khớp hoàn toàn yêu cầu, đang tìm phương án gần nhất ({description})..."
             )
-            relaxed_notes: List[str] = []
+            relaxed_notes: list[str] = []
             raw_products = await _search(tool, relaxed.cleaned_query, relaxed, relaxed_notes)
             if raw_products:
                 state.relaxed_search = description
@@ -140,7 +146,9 @@ async def run_search(tool: EcomSearchTool, state: AgentState) -> AsyncIterator[e
         widened = widened_budget(criteria.max_price)
         wanted = ", ".join(verifiable_attributes(criteria).values())
         yield events.products([ProductItemModel(**p) for p in raw_products])
-        yield events.status("upsell", f"Chưa có sản phẩm đúng {wanted} trong ngân sách, đang tìm thêm tới {widened:,.0f} đ...")
+        yield events.status(
+            "upsell", f"Chưa có sản phẩm đúng {wanted} trong ngân sách, đang tìm thêm tới {widened:,.0f} đ..."
+        )
         raw_products = await _upsell(tool, state, search_query, raw_products, widened, wanted)
 
     state.found_products = [ProductItemModel(**p) for p in raw_products]

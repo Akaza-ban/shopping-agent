@@ -2,13 +2,14 @@
 
 Thiếu khóa ở tiếng Anh thì dùng tiếng Việt. Thêm câu mới: thêm khóa vào cả hai file JSON.
 """
+
 import json
 import pathlib
-from typing import Any, Dict, List
+from typing import Any
 
 DEFAULT_LANGUAGE = "vi"
 _LOCALE_DIR = pathlib.Path(__file__).parent / "locales"
-_LOCALES: Dict[str, Dict[str, Any]] = {
+_LOCALES: dict[str, dict[str, Any]] = {
     path.stem: json.loads(path.read_text(encoding="utf-8")) for path in _LOCALE_DIR.glob("*.json")
 }
 
@@ -24,6 +25,6 @@ def tr(key: str, language: str, **values: Any) -> str:
     return text.format(**values) if values else text
 
 
-def tr_list(key: str, language: str) -> List[str]:
+def tr_list(key: str, language: str) -> list[str]:
     """Một danh sách câu theo ngôn ngữ (bản sao, sửa thoải mái)."""
     return list(_lookup(key, language))

@@ -9,9 +9,9 @@ from ..connection import Base
 class PlatformModel(Base):
     __tablename__ = "platforms"
 
-    id = Column(String, primary_key=True) 
+    id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
-    type = Column(String, default="Sàn TMĐT")  
+    type = Column(String, default="Sàn TMĐT")
     home_url = Column(String, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 

@@ -1,12 +1,11 @@
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from integrations.llm import ask_llm
+from integrations.llm import ask_llm, get_chat_model
 from shared.exceptions import LLMResponseError
-from integrations.llm import get_chat_model
 
 MAX_CONTENT_CHARS = 20000
 
@@ -27,7 +26,7 @@ _STR_FIELDS = ("return_shipping_fee", "refund_time", "defect_exchange", "warrant
 _LIST_FIELDS = ("return_conditions", "exceptions", "evidence")
 
 
-def parse_terms(raw: str) -> Dict[str, Any]:
+def parse_terms(raw: str) -> dict[str, Any]:
     """JSON của LLM -> dict điều khoản đúng kiểu; thiếu hoặc sai kiểu -> LLMResponseError."""
     text = raw.strip()
     m = re.search(r"\{.*\}", text, re.S)
@@ -35,7 +34,7 @@ def parse_terms(raw: str) -> Dict[str, Any]:
         raise LLMResponseError("LLM không trả về JSON")
     try:
         data = json.loads(m.group(0))
-        out: Dict[str, Any] = {
+        out: dict[str, Any] = {
             "return_window_days": int(data.get("return_window_days") or 0),
             "free_return": bool(data.get("free_return")),
         }
@@ -51,7 +50,7 @@ def parse_terms(raw: str) -> Dict[str, Any]:
     return out
 
 
-def unsupported_numbers(terms: Dict[str, Any], content: str) -> List[str]:
+def unsupported_numbers(terms: dict[str, Any], content: str) -> list[str]:
     """Các con số (ngày, %) trong điều khoản mà không xuất hiện trong trang gốc -> có thể LLM tự bịa."""
     fields = [terms[f] for f in _STR_FIELDS] + terms["return_conditions"] + terms["exceptions"]
     found = set(re.findall(r"\d+(?:[.,]\d+)?\s*%?", " ".join(fields)))
@@ -61,11 +60,14 @@ def unsupported_numbers(terms: Dict[str, Any], content: str) -> List[str]:
     return sorted(n.strip() for n in found if re.sub(r"\s+", "", n) not in flat)
 
 
-async def extract_terms(platform_name: str, content: str) -> Dict[str, Any]:
-    raw = await ask_llm(get_chat_model(temperature=0.0), [
-        SystemMessage(content=EXTRACT_PROMPT),
-        HumanMessage(content=f"Nhà bán lẻ: {platform_name}\n\nNội dung trang:\n{content[:MAX_CONTENT_CHARS]}"),
-    ])
+async def extract_terms(platform_name: str, content: str) -> dict[str, Any]:
+    raw = await ask_llm(
+        get_chat_model(temperature=0.0),
+        [
+            SystemMessage(content=EXTRACT_PROMPT),
+            HumanMessage(content=f"Nhà bán lẻ: {platform_name}\n\nNội dung trang:\n{content[:MAX_CONTENT_CHARS]}"),
+        ],
+    )
     terms = parse_terms(raw)
     terms["unsupported_numbers"] = unsupported_numbers(terms, content)
     return terms

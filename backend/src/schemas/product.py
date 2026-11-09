@@ -3,7 +3,8 @@
 Tách khỏi ProductItemModel của agent (core/state.py): sửa state nội bộ của agent không làm đổi API.
 Trường dùng camelCase vì giao diện đang dùng tên này.
 """
-from typing import Any, Dict, List, Optional, Union
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -25,16 +26,16 @@ class ProductOut(BaseModel):
     reviewsCount: str = "100+ đánh giá"
     sku: str = ""
     image: str = ""
-    specs: Optional[Union[Dict[str, Any], str]] = ""
+    specs: dict[str, Any] | str | None = ""
     aiSummary: str = ""
     warranty: str = "Chính hãng 12 tháng"
-    deliveryTag: Optional[str] = "Freeship"
+    deliveryTag: str | None = "Freeship"
     selected: bool = False
     externalUrl: str = ""
-    sourceCategoryPath: Optional[str] = None
-    sourceCategoryName: Optional[str] = None
-    updatedAt: Optional[str] = None
-    returnPolicy: Optional[str] = None
+    sourceCategoryPath: str | None = None
+    sourceCategoryName: str | None = None
+    updatedAt: str | None = None
+    returnPolicy: str | None = None
     detailFetched: bool = False
-    matchReasons: List[str] = Field(default_factory=list)
-    attributeMatch: Dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown
+    matchReasons: list[str] = Field(default_factory=list)
+    attributeMatch: dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown

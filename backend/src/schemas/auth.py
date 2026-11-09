@@ -1,4 +1,5 @@
 """Dữ liệu vào của API tài khoản."""
+
 from pydantic import BaseModel
 
 

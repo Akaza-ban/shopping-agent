@@ -1,6 +1,7 @@
 """Ranh giới lỗi khi cào sàn / tải trang: lỗi mạng và lỗi đọc dữ liệu trang -> CrawlerError."""
+
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 import httpx
 

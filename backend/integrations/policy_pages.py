@@ -1,6 +1,6 @@
 """Tải trang chính sách công khai của các nền tảng, lấy phần nội dung chính và chia thành đoạn để tra cứu."""
+
 import re
-from typing import Dict, List, Optional
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -13,16 +13,39 @@ HEADERS = {
 }
 CHUNK_CHARS = 700
 
-POLICY_SOURCES: Dict[str, List[Dict[str, str]]] = {
-    "tgdd": [{"doc_type": "return", "title": "Chính sách bảo hành, đổi trả sản phẩm",
-              "url": "https://www.thegioididong.com/chinh-sach-bao-hanh-san-pham", "selector": "#help-main"}],
-    "dmx": [{"doc_type": "return", "title": "Chính sách bảo hành, đổi trả sản phẩm",
-             "url": "https://www.dienmayxanh.com/chinh-sach-bao-hanh-san-pham", "selector": "#help-main"}],
-    "fpt-shop": [{"doc_type": "return", "title": "Chính sách đổi trả",
-                  "url": "https://fptshop.com.vn/ho-tro/chinh-sach-doi-san-pham", "selector": "#article-content"}],
-    "cellphones": [{"doc_type": "return", "title": "Chính sách hủy giao dịch, đổi trả hàng",
-                    "url": "https://cellphones.com.vn/quy-che-hoat-dong-ung-dung-cellphones/chinh-sach-doi-tra",
-                    "selector": "#pageBody"}],
+POLICY_SOURCES: dict[str, list[dict[str, str]]] = {
+    "tgdd": [
+        {
+            "doc_type": "return",
+            "title": "Chính sách bảo hành, đổi trả sản phẩm",
+            "url": "https://www.thegioididong.com/chinh-sach-bao-hanh-san-pham",
+            "selector": "#help-main",
+        }
+    ],
+    "dmx": [
+        {
+            "doc_type": "return",
+            "title": "Chính sách bảo hành, đổi trả sản phẩm",
+            "url": "https://www.dienmayxanh.com/chinh-sach-bao-hanh-san-pham",
+            "selector": "#help-main",
+        }
+    ],
+    "fpt-shop": [
+        {
+            "doc_type": "return",
+            "title": "Chính sách đổi trả",
+            "url": "https://fptshop.com.vn/ho-tro/chinh-sach-doi-san-pham",
+            "selector": "#article-content",
+        }
+    ],
+    "cellphones": [
+        {
+            "doc_type": "return",
+            "title": "Chính sách hủy giao dịch, đổi trả hàng",
+            "url": "https://cellphones.com.vn/quy-che-hoat-dong-ung-dung-cellphones/chinh-sach-doi-tra",
+            "selector": "#pageBody",
+        }
+    ],
 }
 
 _BLOCKS = ("p", "li", "h1", "h2", "h3", "h4", "h5", "tr", "div")
@@ -32,15 +55,15 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def extract_lines(html: str, selector: str) -> List[str]:
+def extract_lines(html: str, selector: str) -> list[str]:
     """Các dòng văn bản của vùng nội dung chính; mỗi hàng bảng thành một dòng 'ô | ô | ô'."""
     soup = BeautifulSoup(html, "html.parser")
-    root: Optional[Tag] = soup.select_one(selector)
+    root: Tag | None = soup.select_one(selector)
     if root is None:
         return []
     for t in root(["script", "style", "noscript", "svg", "img", "button", "form"]):
         t.decompose()
-    lines: List[str] = []
+    lines: list[str] = []
     for el in root.find_all(_BLOCKS):
         if el.name == "tr":
             cells = [_clean(c.get_text(" ")) for c in el.find_all(["td", "th"])]
@@ -53,12 +76,12 @@ def extract_lines(html: str, selector: str) -> List[str]:
             line = _clean(el.get_text(" "))
         if line and (not lines or lines[-1] != line):
             lines.append(line)
-    return [l for l in lines if l.lower() not in ("xem nhanh",)]
+    return [line for line in lines if line.lower() not in ("xem nhanh",)]
 
 
-def chunk_lines(lines: List[str], limit: int = CHUNK_CHARS) -> List[str]:
+def chunk_lines(lines: list[str], limit: int = CHUNK_CHARS) -> list[str]:
     """Ghép các dòng liền nhau thành đoạn khoảng `limit` ký tự; dòng ngắn kiểu tiêu đề đi kèm nội dung sau nó."""
-    chunks: List[str] = []
+    chunks: list[str] = []
     cur = ""
     for line in lines:
         if cur and len(cur) + len(line) + 1 > limit and len(cur) > 80:
@@ -70,18 +93,18 @@ def chunk_lines(lines: List[str], limit: int = CHUNK_CHARS) -> List[str]:
     return chunks
 
 
-async def fetch_document(source: Dict[str, str], client: httpx.AsyncClient) -> Dict[str, object]:
+async def fetch_document(source: dict[str, str], client: httpx.AsyncClient) -> dict[str, object]:
     r = await client.get(source["url"])
     r.raise_for_status()
     lines = extract_lines(r.text, source["selector"])
-    if sum(len(l) for l in lines) < 500:
+    if sum(len(line) for line in lines) < 500:
         raise ValueError(f"không tìm thấy nội dung chính ({source['selector']})")
     return {**source, "lines": lines, "chunks": chunk_lines(lines)}
 
 
-async def fetch_all(platform_ids: Optional[List[str]] = None) -> Dict[str, List[Dict[str, object]]]:
+async def fetch_all(platform_ids: list[str] | None = None) -> dict[str, list[dict[str, object]]]:
     """{platform_id: [tài liệu]}; nền tảng lỗi trả về danh sách rỗng kèm khóa 'error'."""
-    out: Dict[str, List[Dict[str, object]]] = {}
+    out: dict[str, list[dict[str, object]]] = {}
     async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=25) as client:
         for pid, sources in POLICY_SOURCES.items():
             if platform_ids and pid not in platform_ids:

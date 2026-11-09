@@ -1,5 +1,6 @@
-import sys
 import asyncio
+import sys
+
 import pytest
 
 if sys.platform == "win32":
@@ -11,11 +12,13 @@ if sys.platform == "win32":
 sys.path.insert(0, ".")
 
 from fastapi.testclient import TestClient
-from src.main import app
-from database.connection import init_db, close_db
+
+from database.connection import close_db, init_db
 from jobs.batch_crawler import batch_crawler_service
+from src.main import app
 
 client = TestClient(app)
+
 
 @pytest.mark.anyio
 async def test_crawler_status():
@@ -34,6 +37,7 @@ async def test_crawler_status():
     assert data["isRunning"] == status["isRunning"]
     assert data["totalProductsInDb"] >= 0
 
+
 @pytest.mark.anyio
 async def test_should_warmup_logic():
     """Kiểm tra logic should_warmup với các ngưỡng thời gian."""
@@ -48,6 +52,7 @@ async def test_should_warmup_logic():
         needs_warmup = await batch_crawler_service.should_warmup(max_stale_hours=12)
         assert needs_warmup is True
 
+
 @pytest.mark.anyio
 async def test_batch_crawl_execution():
     """
@@ -59,11 +64,7 @@ async def test_batch_crawl_execution():
         {"query": "tai nghe bluetooth", "platform": "tiki", "category": "audio", "categoryName": "Thiết bị âm thanh"}
     ]
 
-    stats = await batch_crawler_service.run_batch_crawl(
-        catalog=test_catalog,
-        limit_per_query=2,
-        force_refresh=True
-    )
+    stats = await batch_crawler_service.run_batch_crawl(catalog=test_catalog, limit_per_query=2, force_refresh=True)
 
     assert stats["status"] == "completed"
     assert stats["queriesCount"] == 1
@@ -76,15 +77,20 @@ async def test_batch_crawl_execution():
     assert current_status["totalProductsInDb"] > 0
     assert current_status["lastRunTime"] is not None
 
+
 @pytest.mark.anyio
 async def test_crawler_trigger_api_background():
     """Kiểm tra gọi API POST /api/v1/crawler/trigger với background=True."""
-    resp = client.post("/api/v1/crawler/trigger", json={"limit_per_query": 2, "force_refresh": False, "background": True})
+    resp = client.post(
+        "/api/v1/crawler/trigger", json={"limit_per_query": 2, "force_refresh": False, "background": True}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] in ("started", "already_running")
 
+
 if __name__ == "__main__":
+
     async def main():
         print("=== TEST STEP 4: COMBINED OPTION 1 & OPTION 2 ===")
         await test_crawler_status()

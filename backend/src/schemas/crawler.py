@@ -1,4 +1,5 @@
 """Dữ liệu vào của API quản lý crawler."""
+
 from pydantic import BaseModel, Field
 
 

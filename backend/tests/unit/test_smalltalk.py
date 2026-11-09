@@ -2,6 +2,7 @@
 Trò chuyện xã giao do LLM router tự phân loại và trả lời trong cùng một lần gọi:
 không có bước trạng thái, không tìm kiếm, không gọi LLM lần hai.
 """
+
 import asyncio
 import json
 
@@ -23,6 +24,7 @@ class FakeLLM:
 
         class R:
             content = json.dumps(self.payload, ensure_ascii=False)
+
         return R()
 
 
@@ -48,7 +50,10 @@ def test_smalltalk_without_reply_falls_back_to_advisor(monkeypatch):
 
 
 def test_search_request_is_unaffected(monkeypatch):
-    use_llm(monkeypatch, {"intent": "search_products", "criteria": {"category": "laptops", "cleaned_query": "laptop gaming"}})
+    use_llm(
+        monkeypatch,
+        {"intent": "search_products", "criteria": {"category": "laptops", "cleaned_query": "laptop gaming"}},
+    )
     s = asyncio.run(OrchestratorAgent().route(state("chào bạn, tìm laptop gaming")))
     assert s.intent == "search_products" and s.criteria.cleaned_query == "laptop gaming"
 
@@ -65,6 +70,7 @@ def run_graph(query="hôm nay buồn quá"):
         wf.advisor = None  # không được gọi Advisor
         wf.search_tool = None  # không được tìm kiếm
         return [e async for e in wf.execute_stream(state(query))]
+
     return asyncio.run(scenario())
 
 
@@ -81,6 +87,7 @@ def test_graph_replies_without_status_search_or_second_llm_call(monkeypatch):
 
 def test_smalltalk_keeps_pending_clarification(monkeypatch):
     from memory.session_manager import session_memory
+
     pending = {"pending_clarification": {"category": "laptops"}}
     use_llm(monkeypatch, {"intent": "smalltalk", "criteria": {}, "reply": "Chào bạn!"})
     monkeypatch.setattr(session_memory, "get_conversation_state", lambda sid: pending)

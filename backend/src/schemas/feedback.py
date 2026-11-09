@@ -1,5 +1,6 @@
 """Dữ liệu vào của API góp ý / yêu cầu hỗ trợ."""
-from typing import Literal, Optional
+
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,5 +16,5 @@ class FeedbackRequest(BaseModel):
 
 
 class FeedbackUpdate(BaseModel):
-    status: Optional[FeedbackStatus] = None
-    admin_note: Optional[str] = Field(default=None, max_length=2000)
+    status: FeedbackStatus | None = None
+    admin_note: str | None = Field(default=None, max_length=2000)

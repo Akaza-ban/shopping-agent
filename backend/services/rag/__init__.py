@@ -1,4 +1,5 @@
 """RAG sản phẩm — xem docs/11-rag.md."""
+
 from services.rag.scoring import Thresholds
 from services.rag.service import DEFAULT_CHROMA_PATH, ProductRAGService
 

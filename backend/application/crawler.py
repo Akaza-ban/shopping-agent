@@ -2,7 +2,9 @@
 
 Bản thân việc cào nằm ở jobs/batch_crawler.py.
 """
-from typing import Any, Callable, Dict
+
+from collections.abc import Callable
+from typing import Any
 
 from jobs.batch_crawler import batch_crawler_service
 
@@ -12,12 +14,13 @@ ALREADY_RUNNING = {
 }
 
 
-async def status() -> Dict[str, Any]:
+async def status() -> dict[str, Any]:
     return await batch_crawler_service.get_crawler_status()
 
 
-async def trigger(limit_per_query: int, force_refresh: bool, background: bool,
-                  schedule: Callable[..., None]) -> Dict[str, Any]:
+async def trigger(
+    limit_per_query: int, force_refresh: bool, background: bool, schedule: Callable[..., None]
+) -> dict[str, Any]:
     """`background` = True: đưa đợt cào vào `schedule` (BackgroundTasks.add_task) và trả lời ngay."""
     if batch_crawler_service.is_running:
         return ALREADY_RUNNING

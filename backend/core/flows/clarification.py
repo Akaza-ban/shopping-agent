@@ -4,10 +4,11 @@ Lượt 1: "tìm laptop gaming"  -> maybe_ask(): hỏi ngân sách, lưu tiêu c
 Lượt 2: "20 - 25 triệu"      -> apply_pending(): gộp khoảng giá vào tiêu chí đang chờ rồi tìm.
 Mỗi ngành hàng chỉ hỏi một lần trong một hội thoại.
 """
+
 import logging
 import re
 import time
-from typing import Any, Dict
+from typing import Any
 
 from memory.session_manager import session_memory
 
@@ -33,14 +34,16 @@ def budget_label(option: str, language: str) -> str:
         return tr("clarify.budget_skip", language)
     m = _UNDER_OVER_RE.fullmatch(option)
     if m:
-        return tr("clarify.budget_under" if m.group(1) == "Dưới" else "clarify.budget_over", language, amount=m.group(2))
+        return tr(
+            "clarify.budget_under" if m.group(1) == "Dưới" else "clarify.budget_over", language, amount=m.group(2)
+        )
     m = _RANGE_RE.fullmatch(option)
     if m:
         return tr("clarify.budget_range", language, low=m.group(1), high=m.group(2))
     return option
 
 
-def budget_clarification(question: str, category: str, language: str) -> Dict[str, Any]:
+def budget_clarification(question: str, category: str, language: str) -> dict[str, Any]:
     """Câu hỏi ngân sách kèm các lựa chọn theo ngành hàng (giao diện hiển thị thành nút bấm)."""
     options = BUDGET_OPTIONS.get(category, DEFAULT_BUDGET_OPTIONS) + [SKIP_BUDGET_OPTION]
     return {

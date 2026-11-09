@@ -1,16 +1,18 @@
 """Cấu hình của toàn bộ backend, đọc từ biến môi trường / file .env (settings là singleton dùng chung)."""
-import os
-import logging
-from typing import List, Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+import logging
+import os
+from typing import Literal
+
 from dotenv import load_dotenv
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Nạp file .env từ thư mục gốc của backend
 load_dotenv()
 
 logger = logging.getLogger("config")
+
 
 class Settings(BaseSettings):
     # App Information
@@ -18,20 +20,15 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     HOST: str = "0.0.0.0"
     PORT: int = 8000
-    
+
     # CORS Origins (Hỗ trợ Frontend React G chạy ở port 3000)
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173"
-    ]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"]
 
     # LLM PROVIDERS: DEEPSEEK, GROQ & OPENROUTER
     LLM_PROVIDER: Literal["deepseek", "groq", "openrouter"] = Field(
-        default="deepseek",
-        description="Lựa chọn LLM Provider chính: 'deepseek', 'groq' hoặc 'openrouter'"
+        default="deepseek", description="Lựa chọn LLM Provider chính: 'deepseek', 'groq' hoặc 'openrouter'"
     )
-    
+
     # Cấu hình DeepSeek API trực tiếp (Bản trả tiền chính thức)
     DEEPSEEK_API_KEY: str = Field(default="")
     DEEPSEEK_MODEL: str = Field(default="deepseek-chat")
@@ -81,11 +78,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field(default="http://localhost:3000")
     PASSWORD_RESET_TTL_MINUTES: int = Field(default=30)
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
 # Khởi tạo singleton settings

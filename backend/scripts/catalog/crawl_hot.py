@@ -1,12 +1,13 @@
-import sys
-import os
 import asyncio
+import os
+import sys
 
 # Đảm bảo đường dẫn import từ thư mục gốc backend B
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from database.connection import init_db, close_db
+from database.connection import close_db, init_db
 from jobs.batch_crawler import batch_crawler_service
+
 
 async def main():
     print("=" * 65)
@@ -17,10 +18,7 @@ async def main():
     # 1. Khởi tạo CSDL
     await init_db()
 
-    stats = await batch_crawler_service.run_batch_crawl(
-        limit_per_query=3,
-        force_refresh=True
-    )
+    stats = await batch_crawler_service.run_batch_crawl(limit_per_query=3, force_refresh=True)
 
     print("\n" + "=" * 65)
     print(" SUMMARY REPORT:")
@@ -35,6 +33,7 @@ async def main():
 
     await close_db()
     print("\n DONE! Database 'shopai.db' is now refreshed with live products!")
+
 
 if __name__ == "__main__":
     if sys.platform == "win32":

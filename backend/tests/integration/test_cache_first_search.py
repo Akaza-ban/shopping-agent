@@ -1,7 +1,7 @@
-import sys
-import io
 import asyncio
+import sys
 import time
+
 import pytest
 
 if sys.platform == "win32":
@@ -10,12 +10,13 @@ if sys.platform == "win32":
 sys.path.insert(0, ".")
 
 from fastapi.testclient import TestClient
-from src.main import app
+
 from core.tools.ecom_search import EcomSearchTool
-from database.connection import init_db, close_db, async_session
-from database.repositories import product_repository
+from database.connection import close_db, init_db
+from src.main import app
 
 client = TestClient(app)
+
 
 @pytest.mark.anyio
 async def test_cache_first_performance_boost():
@@ -47,11 +48,11 @@ async def test_cache_first_performance_boost():
     assert len(second_res) > 0
     assert second_res[0]["id"] == first_id
     speedup = t1_duration / max(t2_duration, 0.001)
-    print(f"[Run 2 - Cache Hit DB]: {t2_duration*1000:.1f}ms (< 50ms) | Speedup: {speedup:.0f}x faster!")
-
+    print(f"[Run 2 - Cache Hit DB]: {t2_duration * 1000:.1f}ms (< 50ms) | Speedup: {speedup:.0f}x faster!")
 
     # Cache Hit phải nhanh hơn rõ rệt (dưới 100ms)
     assert t2_duration < 0.15
+
 
 @pytest.mark.anyio
 async def test_product_price_history_api():
@@ -75,6 +76,7 @@ async def test_product_price_history_api():
     assert data["total"] >= 1
     assert data["history"][0]["price"] > 0
 
+
 @pytest.mark.anyio
 async def test_api_search_force_refresh():
     """Kiểm tra API search hỗ trợ tham số force_refresh."""
@@ -84,7 +86,9 @@ async def test_api_search_force_refresh():
     assert data["total"] > 0
     assert any(p["platform"] == "dmx" for p in data["data"])
 
+
 if __name__ == "__main__":
+
     async def main():
         print("=== TEST STEP 3: CACHE-FIRST INTEGRATION ===")
         await test_cache_first_performance_boost()

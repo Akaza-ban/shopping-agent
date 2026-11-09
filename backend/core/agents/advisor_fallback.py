@@ -1,10 +1,9 @@
 """Câu trả lời dựng sẵn (Markdown) khi LLM offline hoặc lỗi: lượt chat không bao giờ bị sập vì LLM.
 
-    có sản phẩm + đang đọc link   -> link_review()
-    có sản phẩm                    -> recommendation()
-    không có sản phẩm              -> without_products(): đã quét mà không thấy / ngoài phạm vi / chào hỏi / tư vấn chung
+có sản phẩm + đang đọc link   -> link_review()
+có sản phẩm                    -> recommendation()
+không có sản phẩm              -> without_products(): đã quét mà không thấy / ngoài phạm vi / chào hỏi / tư vấn chung
 """
-from typing import Dict, Optional
 
 from integrations.platforms import display_names
 from services.catalog.reviews import rating_text
@@ -19,7 +18,7 @@ def discount_text(p: ProductItemModel) -> str:
     return f" *(Tiết kiệm {savings:,.0f} đ, giảm {p.discountPercent}%)*" if p.discountPercent > 0 else ""
 
 
-def build_fallback(context: Dict[str, str], top: Optional[ProductItemModel], intent: Optional[str] = None) -> str:
+def build_fallback(context: dict[str, str], top: ProductItemModel | None, intent: str | None = None) -> str:
     if top and intent == "parse_link":
         return link_review(top)
     if top:
@@ -30,8 +29,11 @@ def build_fallback(context: Dict[str, str], top: Optional[ProductItemModel], int
 def link_review(p: ProductItemModel) -> str:
     """Thẩm định sản phẩm người dùng dán link."""
     savings = max(0, p.originalPrice - p.currentPrice)
-    deal = (f"Sản phẩm đang được ưu đãi giảm {p.discountPercent}%, tiết kiệm {savings:,.0f} đ so với niêm yết."
-            if p.discountPercent > 0 else "Giá niêm yết chuẩn chính hãng.")
+    deal = (
+        f"Sản phẩm đang được ưu đãi giảm {p.discountPercent}%, tiết kiệm {savings:,.0f} đ so với niêm yết."
+        if p.discountPercent > 0
+        else "Giá niêm yết chuẩn chính hãng."
+    )
     return (
         f"### Thẩm định sản phẩm từ liên kết: [{p.name}]({p.externalUrl})\n\n"
         f"- **Kênh phân phối:** **{p.platformName}** ({p.deliveryTag or 'Chính hãng'})\n"
@@ -47,11 +49,12 @@ def link_review(p: ProductItemModel) -> str:
     )
 
 
-def recommendation(context: Dict[str, str], p: ProductItemModel) -> str:
+def recommendation(context: dict[str, str], p: ProductItemModel) -> str:
     """Đề xuất sản phẩm xếp hạng #1 kèm bảng tóm tắt các lựa chọn."""
     relaxed_intro = (
         f"> Không tìm thấy sản phẩm khớp 100% yêu cầu của bạn. Dưới đây là các phương án gần nhất sau khi {context['relaxed_search']}.\n\n"
-        if context.get("relaxed_search") else ""
+        if context.get("relaxed_search")
+        else ""
     )
     return (
         f"{relaxed_intro}"
@@ -68,14 +71,14 @@ def recommendation(context: Dict[str, str], p: ProductItemModel) -> str:
     )
 
 
-def without_products(context: Dict[str, str]) -> str:
+def without_products(context: dict[str, str]) -> str:
     """Không có sản phẩm: đã quét mà không thấy / ngoài phạm vi / chào hỏi / tư vấn chung."""
     query = context["user_query"]
     q_lower = query.lower().strip()
     if context.get("searched"):
         return (
             f"### Chưa tìm thấy sản phẩm phù hợp\n\n"
-            f"Tôi đã quét {display_names()} và kho dữ liệu cho **\"{query}\"** "
+            f'Tôi đã quét {display_names()} và kho dữ liệu cho **"{query}"** '
             f"nhưng chưa có sản phẩm nào đáp ứng, kể cả sau khi thử nới lỏng tiêu chí.\n\n"
             f"Bạn có thể thử: nới ngân sách, bớt một yêu cầu cấu hình, hoặc cho tôi biết hãng/mẫu cụ thể bạn quan tâm."
         )
@@ -101,7 +104,7 @@ def without_products(context: Dict[str, str]) -> str:
         )
     return (
         f"### Tư Vấn Mua Sắm Từ ShopAI Copilot\n\n"
-        f"Về câu hỏi **\"{query}\"**:\n\n"
+        f'Về câu hỏi **"{query}"**:\n\n'
         f"1. **Định hướng lựa chọn:** Dựa trên nhu cầu thực tế, bạn nên cân nhắc giữa tỷ lệ hiệu năng/giá thành (đời máy trước thường tiết kiệm hơn đáng kể) và thời gian hỗ trợ cập nhật lâu dài (đời máy mới hơn).\n"
         f"2. **Đặc thù các sàn TMĐT & chuỗi bán lẻ:**\n"
         f"   - **Tiki Trading:** Giá thường ưu đãi nhất nhờ nhiều mã giảm giá và flash sale.\n"

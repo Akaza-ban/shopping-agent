@@ -7,15 +7,17 @@
 Kết quả là dict sản phẩm dạng chung của hệ thống (chưa phân loại ngành hàng, chưa kiểm định giá).
 Lỗi mạng khi tải trang -> coi như không đọc được (tên lấy từ slug của link, giá 0).
 """
+
 import json
 import logging
 import re
 import urllib.parse
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
 
+from integrations import safe_http
 from integrations.platforms.errors import CRAWL_ERRORS
 from integrations.platforms.mwg import parse_mwg_price
 from shared.categories import tiki_path_from_breadcrumbs
@@ -44,8 +46,9 @@ def _url_hash(url: str, mod: int) -> int:
     return abs(hash(url)) % mod
 
 
-def _page_meta(soup: BeautifulSoup) -> Tuple[str, str, str]:
+def _page_meta(soup: BeautifulSoup) -> tuple[str, str, str]:
     """(tên, ảnh, mô tả) từ thẻ OpenGraph; tên lấy <title> nếu không có og:title."""
+
     def og(prop: str) -> str:
         tag = soup.find("meta", property=prop)
         return tag["content"].strip() if tag and tag.get("content") else ""
@@ -54,7 +57,7 @@ def _page_meta(soup: BeautifulSoup) -> Tuple[str, str, str]:
     return name, og("og:image"), og("og:description")
 
 
-def _jsonld_product(soup: BeautifulSoup) -> Dict[str, Any]:
+def _jsonld_product(soup: BeautifulSoup) -> dict[str, Any]:
     """Tên, hãng, giá, ảnh từ khối JSON-LD @type Product đầu tiên của trang; {} nếu không có."""
     for script in soup.find_all("script", type="application/ld+json"):
         if not script.string:
@@ -66,8 +69,10 @@ def _jsonld_product(soup: BeautifulSoup) -> Dict[str, Any]:
         if not isinstance(schema, dict) or schema.get("@type") != "Product":
             continue
         brand = schema.get("brand")
-        out: Dict[str, Any] = {"name": schema.get("name") or "",
-                               "brand": (brand.get("name") if isinstance(brand, dict) else brand) or ""}
+        out: dict[str, Any] = {
+            "name": schema.get("name") or "",
+            "brand": (brand.get("name") if isinstance(brand, dict) else brand) or "",
+        }
         try:
             out["price"] = float((schema.get("offers") or {}).get("price") or 0)
         except (ValueError, TypeError):
@@ -87,9 +92,9 @@ def _html_price(html: str) -> float:
     return next((p for p in prices if p >= MIN_HTML_PRICE), 0.0)
 
 
-def _page_specs(soup: BeautifulSoup, limit: int = 8) -> Dict[str, str]:
+def _page_specs(soup: BeautifulSoup, limit: int = 8) -> dict[str, str]:
     """Vài dòng thông số "Nhãn: giá trị" trong bảng thông số của trang (giao diện cũ của TGDĐ / ĐMX)."""
-    specs: Dict[str, str] = {}
+    specs: dict[str, str] = {}
     for li in soup.select(".parameter li, .box-specifi li, ul.parameter > li")[:limit]:
         text = li.get_text(":", strip=True)
         if ":" in text:
@@ -100,30 +105,24 @@ def _page_specs(soup: BeautifulSoup, limit: int = 8) -> Dict[str, str]:
 
 def slug_to_title(url: str, fallback_prefix: str) -> str:
     """Tên sản phẩm dễ đọc từ slug của link (khi không đọc được trang)."""
-    match = re.search(r'https?://[^/]+/([^/?#]+)', url)
+    match = re.search(r"https?://[^/]+/([^/?#]+)", url)
     if match:
         raw_slug = urllib.parse.unquote(match.group(1).replace(".html", ""))
-        raw_slug = re.sub(r'-i\.\d+\.\d+$', '', raw_slug)
-        raw_slug = re.sub(r'-i\d+$', '', raw_slug)
-        raw_slug = re.sub(r'-p\d+$', '', raw_slug)
+        raw_slug = re.sub(r"-i\.\d+\.\d+$", "", raw_slug)
+        raw_slug = re.sub(r"-i\d+$", "", raw_slug)
+        raw_slug = re.sub(r"-p\d+$", "", raw_slug)
         clean = raw_slug.replace("-", " ").strip()
         if clean and clean.lower() not in ["product", "products", "item"]:
             return clean.capitalize()
     return f"Sản phẩm từ {fallback_prefix}"
 
 
-async def _fetch_html(url: str) -> Optional[str]:
-    """HTML của trang; None nếu lỗi mạng hoặc mã trả về khác 200."""
-    try:
-        async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=TIMEOUT_SECONDS) as client:
-            resp = await client.get(url)
-        return resp.text if resp.status_code == 200 else None
-    except httpx.HTTPError as e:
-        logger.warning(f"Lỗi tải trang {url}: {e}")
-        return None
+async def _fetch_html(url: str) -> str | None:
+    """HTML của trang; None nếu lỗi mạng, mã trả về khác 200, link trỏ vào mạng nội bộ hoặc trang quá lớn."""
+    return await safe_http.fetch_text(url, headers=HEADERS, timeout=TIMEOUT_SECONDS)
 
 
-def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, price, **fields) -> Dict[str, Any]:
+def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, price, **fields) -> dict[str, Any]:
     """Dạng sản phẩm chung của mọi link đọc từ trang (không biết giá gốc thì lấy bằng giá bán)."""
     original = max(fields.pop("original", 0.0) or 0.0, price)
     return {
@@ -153,7 +152,7 @@ def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, 
 
 
 # Theo sàn
-async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str, badge_bg: str) -> Dict[str, Any]:
+async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str, badge_bg: str) -> dict[str, Any]:
     """Trang chi tiết: JSON-LD trước, rồi OpenGraph, cuối cùng giá trong HTML."""
     name, image, description, price, original, brand, specs = "", "", "", 0.0, 0.0, "Chính hãng", {}
     html = await _fetch_html(url)
@@ -168,16 +167,30 @@ async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str
         price, original = parse_mwg_price(html) or (ld.get("price") or _html_price(html), 0.0)
         specs = _page_specs(soup)
     return _link_product(
-        url, name or slug_to_title(url, platform_name), platform, platform_name, badge_color, badge_bg,
-        id=f"{platform}-{_url_hash(url, 1000000)}", categoryName=platform_name, aiMatchScore=95,
-        price=price, original=original, rating=4.8, image=image, specs=specs or description, brand=brand,
+        url,
+        name or slug_to_title(url, platform_name),
+        platform,
+        platform_name,
+        badge_color,
+        badge_bg,
+        id=f"{platform}-{_url_hash(url, 1000000)}",
+        categoryName=platform_name,
+        aiMatchScore=95,
+        price=price,
+        original=original,
+        rating=4.8,
+        image=image,
+        specs=specs or description,
+        brand=brand,
         sku=f"{platform.upper()}-{_url_hash(url, 10000)}",
-        warranty="Bảo hành 12 tháng tại hệ thống", deliveryTag="Sẵn hàng tại siêu thị",
+        warranty="Bảo hành 12 tháng tại hệ thống",
+        deliveryTag="Sẵn hàng tại siêu thị",
     )
 
 
-async def read_generic(url: str, platform="all", platform_name="Website",
-                       badge_color=GENERIC_BADGE[0], badge_bg=GENERIC_BADGE[1]) -> Dict[str, Any]:
+async def read_generic(
+    url: str, platform="all", platform_name="Website", badge_color=GENERIC_BADGE[0], badge_bg=GENERIC_BADGE[1]
+) -> dict[str, Any]:
     """Trang bất kỳ qua OpenGraph và thẻ giá product:price:amount."""
     name, image, description, price = "", "", "", 0.0
     html = await _fetch_html(url)
@@ -190,14 +203,27 @@ async def read_generic(url: str, platform="all", platform_name="Website",
         except ValueError:
             price = 0.0
     return _link_product(
-        url, name or slug_to_title(url, platform_name), platform, platform_name, badge_color, badge_bg,
-        id=f"parsed-{_url_hash(url, 1000000)}", categoryName="Sản phẩm liên kết", aiMatchScore=90,
-        price=price, rating=5.0, image=image, specs=description, brand="Chính hãng",
-        sku=f"URL-{_url_hash(url, 10000)}", warranty="Theo chính sách gian hàng", deliveryTag="Tiêu chuẩn",
+        url,
+        name or slug_to_title(url, platform_name),
+        platform,
+        platform_name,
+        badge_color,
+        badge_bg,
+        id=f"parsed-{_url_hash(url, 1000000)}",
+        categoryName="Sản phẩm liên kết",
+        aiMatchScore=90,
+        price=price,
+        rating=5.0,
+        image=image,
+        specs=description,
+        brand="Chính hãng",
+        sku=f"URL-{_url_hash(url, 10000)}",
+        warranty="Theo chính sách gian hàng",
+        deliveryTag="Tiêu chuẩn",
     )
 
 
-def _tiki_product_id(url: str) -> Optional[str]:
+def _tiki_product_id(url: str) -> str | None:
     for pattern in _TIKI_ID_PATTERNS:
         m = re.search(pattern, url)
         if m:
@@ -205,15 +231,18 @@ def _tiki_product_id(url: str) -> Optional[str]:
     return None
 
 
-def _tiki_product(data: Dict[str, Any], product_id: str, url: str) -> Dict[str, Any]:
+def _tiki_product(data: dict[str, Any], product_id: str, url: str) -> dict[str, Any]:
     """Phản hồi API v2 của Tiki -> dict sản phẩm."""
     price = float(data.get("price") or 0)
     crumbs = data.get("breadcrumbs", [])
     cat_names = [str(c.get("name", "")) for c in crumbs if c.get("category_id")]
     seller = data.get("current_seller", {}).get("name") or "Tiki Trading"
-    specs = {str(a["name"]).strip(): str(a["value"]).strip()
-             for group in data.get("specifications", []) for a in group.get("attributes", [])
-             if a.get("name") and a.get("value")}
+    specs = {
+        str(a["name"]).strip(): str(a["value"]).strip()
+        for group in data.get("specifications", [])
+        for a in group.get("attributes", [])
+        if a.get("name") and a.get("value")
+    }
     warranty = next((str(w["value"]) for w in data.get("warranty_info", []) if w.get("value")), "Chính hãng 12 tháng")
     return {
         "id": f"tiki-{product_id}",
@@ -243,7 +272,7 @@ def _tiki_product(data: Dict[str, Any], product_id: str, url: str) -> Dict[str, 
     }
 
 
-async def read_tiki(url: str) -> Dict[str, Any]:
+async def read_tiki(url: str) -> dict[str, Any]:
     """Tiki qua API v2; không có mã sản phẩm hoặc API lỗi thì đọc như trang thường."""
     product_id = _tiki_product_id(url)
     if product_id:
@@ -254,5 +283,6 @@ async def read_tiki(url: str) -> Dict[str, Any]:
                 return _tiki_product(resp.json(), product_id, url)
         except CRAWL_ERRORS as e:
             logger.warning(f"Lỗi gọi Tiki API v2 cho {url}: {e}")
-    return await read_generic(url, platform="tiki", platform_name="Tiki Trading",
-                              badge_color=TIKI_BADGE[0], badge_bg=TIKI_BADGE[1])
+    return await read_generic(
+        url, platform="tiki", platform_name="Tiki Trading", badge_color=TIKI_BADGE[0], badge_bg=TIKI_BADGE[1]
+    )

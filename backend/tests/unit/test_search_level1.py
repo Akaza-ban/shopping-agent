@@ -5,18 +5,20 @@ Kiểm thử Mức 1 của luồng tư vấn mua sắm:
 - Ghi chú thuộc tính chưa xác minh & nới lỏng tiêu chí khi không có kết quả.
 - Advisor không được dùng sản phẩm cũ / bịa dữ liệu khi lượt tìm kiếm rỗng.
 """
+
 import asyncio
 import os
 import re
+
 import pytest
 
+from core.agents import advisor_context, advisor_fallback
+from core.flows.search_flow import relaxation_steps
+from core.state import AgentState, UniversalSearchCriteria
+from core.tools import attribute_match
 from core.tools.ecom_search import EcomSearchTool
 from integrations.platforms.common import query_candidates
 from integrations.platforms.mwg import DMX, TGDD
-from core.state import AgentState, UniversalSearchCriteria
-from core.flows.search_flow import relaxation_steps
-from core.tools import attribute_match
-from core.agents import advisor_context, advisor_fallback
 from services.catalog.data_processor import data_processor
 
 FIXTURES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
@@ -53,7 +55,9 @@ def test_parse_dmx_listing_2026():
 
 
 def test_mwg_query_candidates_drop_attributes():
-    c = UniversalSearchCriteria(target_entity="laptop", attributes={"gpu": "RTX 4070"}, cleaned_query="laptop gaming RTX 4070")
+    c = UniversalSearchCriteria(
+        target_entity="laptop", attributes={"gpu": "RTX 4070"}, cleaned_query="laptop gaming RTX 4070"
+    )
     cands = query_candidates("laptop gaming RTX 4070", c)
     assert cands[0] == "laptop gaming RTX 4070"
     assert "laptop gaming" in cands
@@ -62,7 +66,9 @@ def test_mwg_query_candidates_drop_attributes():
 
 def test_accessories_filtered_by_learned_mapping(_offline_category_resolver):
     """Phụ kiện bị bỏ theo cờ is_accessory của bảng quy đổi, trừ khi người dùng chủ đích tìm phụ kiện."""
-    _offline_category_resolver.remember({"tiki:1/2/1846/8095": ("laptops", False), "tiki:1/2/1846/8129": ("other", True)})
+    _offline_category_resolver.remember(
+        {"tiki:1/2/1846/8095": ("laptops", False), "tiki:1/2/1846/8129": ("other", True)}
+    )
     laptop = {"id": "tiki-1", "name": "Laptop", "platform": "tiki", "sourceCategoryPath": "1/2/1846/8095"}
     charger = {"id": "tiki-2", "name": "Adapter Sạc Laptop", "platform": "tiki", "sourceCategoryPath": "1/2/1846/8129"}
     unknown = {"id": "tiki-3", "name": "Thứ chưa rõ", "platform": "tiki", "sourceCategoryPath": "1/2/77777"}
@@ -96,8 +102,11 @@ def test_attribute_match_orders_verified_first_and_notes():
 
 def test_relaxation_steps_are_cumulative():
     c = UniversalSearchCriteria(
-        target_entity="laptop", max_price=30_000_000, brands=["ASUS"],
-        attributes={"gpu": "RTX 4070"}, cleaned_query="laptop gaming ASUS RTX 4070"
+        target_entity="laptop",
+        max_price=30_000_000,
+        brands=["ASUS"],
+        attributes={"gpu": "RTX 4070"},
+        cleaned_query="laptop gaming ASUS RTX 4070",
     )
     steps = relaxation_steps(c)
     assert len(steps) == 3
@@ -111,11 +120,22 @@ def test_relaxation_steps_are_cumulative():
 
 def test_advisor_reports_no_products_instead_of_reusing_old_ones(monkeypatch):
     from memory.session_manager import session_memory
+
     # Giả lập phiên có sản phẩm từ lượt trước
-    monkeypatch.setattr(session_memory, "get_last_products", lambda sid: [{
-        "id": "old-1", "name": "Sản phẩm lượt trước", "platform": "tiki", "platformName": "Tiki",
-        "originalPrice": 1, "currentPrice": 1
-    }])
+    monkeypatch.setattr(
+        session_memory,
+        "get_last_products",
+        lambda sid: [
+            {
+                "id": "old-1",
+                "name": "Sản phẩm lượt trước",
+                "platform": "tiki",
+                "platformName": "Tiki",
+                "originalPrice": 1,
+                "currentPrice": 1,
+            }
+        ],
+    )
     state = AgentState(session_id="s-empty", user_query="laptop RTX 5090 dưới 10 triệu", intent="search_products")
     ctx = advisor_context.build_context(state)
     assert "KHÔNG TÌM THẤY SẢN PHẨM" in ctx["products_context"]
@@ -128,10 +148,21 @@ def test_advisor_reports_no_products_instead_of_reusing_old_ones(monkeypatch):
 
 def test_advisor_followup_question_still_reuses_previous_products(monkeypatch):
     from memory.session_manager import session_memory
-    monkeypatch.setattr(session_memory, "get_last_products", lambda sid: [{
-        "id": "old-1", "name": "Sản phẩm lượt trước", "platform": "tiki", "platformName": "Tiki",
-        "originalPrice": 1, "currentPrice": 1
-    }])
+
+    monkeypatch.setattr(
+        session_memory,
+        "get_last_products",
+        lambda sid: [
+            {
+                "id": "old-1",
+                "name": "Sản phẩm lượt trước",
+                "platform": "tiki",
+                "platformName": "Tiki",
+                "originalPrice": 1,
+                "currentPrice": 1,
+            }
+        ],
+    )
     state = AgentState(session_id="s-follow", user_query="con thứ nhất pin mấy tiếng?", intent="general_advice")
     ctx = advisor_context.build_context(state)
     assert "Sản phẩm lượt trước" in ctx["products_context"]

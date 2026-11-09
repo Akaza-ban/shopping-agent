@@ -17,9 +17,7 @@ def objective(s):
 
 def calibrate():
     queries = load_eval_set()
-    grid = itertools.product(
-        [0.30, 0.33, 0.36, 0.39, 0.42, 0.45, 0.48], [0.45, 0.50, 0.55, 0.60], [0.5, 0.67, 0.99]
-    )
+    grid = itertools.product([0.30, 0.33, 0.36, 0.39, 0.42, 0.45, 0.48], [0.45, 0.50, 0.55, 0.60], [0.5, 0.67, 0.99])
     results = []
     for accept, weak, lex in grid:
         if weak < accept:
@@ -37,8 +35,10 @@ def print_report(report):
         if r.get("negative"):
             print(f"{'OK ' if r['ok'] else 'BAD'} [neg] {r['query']:<40} trả {r['returned']} {r['top']}")
         else:
-            print(f"R@5={r['recall@5']:.2f} P@5={r['precision@5']:.2f} MRR={r['mrr@10']:.2f} "
-                  f"{r['query']:<40} ({r['n_relevant']} đáp án) {r['top']}")
+            print(
+                f"R@5={r['recall@5']:.2f} P@5={r['precision@5']:.2f} MRR={r['mrr@10']:.2f} "
+                f"{r['query']:<40} ({r['n_relevant']} đáp án) {r['top']}"
+            )
     print(json.dumps(report["summary"], ensure_ascii=False))
 
 

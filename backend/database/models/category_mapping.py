@@ -7,6 +7,7 @@ from ..connection import Base
 
 class CategoryMappingModel(Base):
     """Danh mục của một sàn -> ngành hàng chuẩn của hệ thống; do LLM quy đổi lần đầu, sửa tay được (decided_by)."""
+
     __tablename__ = "category_mappings"
 
     source_key = Column(String, primary_key=True)

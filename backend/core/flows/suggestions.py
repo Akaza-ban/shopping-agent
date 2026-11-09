@@ -4,8 +4,8 @@ link vừa đọc -> hỏi về link đó; 2+ sản phẩm -> so sánh hai cái 
 không có sản phẩm -> gợi ý theo chủ đề câu hỏi (điện thoại, laptop, mặc định).
 Câu chữ nằm ở core/locales/*.json (khóa "suggest.*").
 """
+
 import re
-from typing import List
 
 from memory.session_manager import session_memory
 
@@ -24,17 +24,17 @@ def short_name(name: str) -> str:
     """'Tai nghe Chụp Tai Sony WH1000XM6' -> 'Sony WH1000XM6'."""
     words = name.split()
     start = next((i for i, w in enumerate(words) if not GENERIC_NAME_WORDS.match(w)), 0)
-    return " ".join(words[start:start + 2]) or name[:15]
+    return " ".join(words[start : start + 2]) or name[:15]
 
 
-def _context_products(state: AgentState) -> List[ProductItemModel]:
+def _context_products(state: AgentState) -> list[ProductItemModel]:
     """Sản phẩm của lượt này; không có thì lấy sản phẩm đã đề xuất ở lượt trước trong phiên."""
     if state.found_products or not state.session_id:
         return state.found_products
     return [ProductItemModel(**p) for p in session_memory.get_last_products(state.session_id) or []]
 
 
-def generate(state: AgentState) -> List[str]:
+def generate(state: AgentState) -> list[str]:
     if state.clarification:
         return []
     lang = state.language
@@ -47,7 +47,9 @@ def generate(state: AgentState) -> List[str]:
         return [q.format(a=a, b=b) for q in tr_list("suggest.pair", lang)]
     if len(products) == 1:
         p = products[0]
-        return [q.format(name=p.name[:NAME_PREVIEW_CHARS], platform=p.platformName) for q in tr_list("suggest.single", lang)]
+        return [
+            q.format(name=p.name[:NAME_PREVIEW_CHARS], platform=p.platformName) for q in tr_list("suggest.single", lang)
+        ]
     query = state.user_query.lower()
     if any(w in query for w in tr_list("suggest.phone_words", lang)):
         return tr_list("suggest.phones", lang)

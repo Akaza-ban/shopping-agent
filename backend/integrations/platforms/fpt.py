@@ -1,18 +1,23 @@
 """FPT Shop: trang tìm kiếm Next.js nhúng kết quả JSON (RSC); trang chi tiết có JSON-LD Product."""
+
 import json
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
-from shared.categories import category_path
 from integrations.platforms.base import JsonLdDetailAdapter
-from services.catalog.reviews import sold_label
 from integrations.platforms.common import (
-    BROWSER_HEADERS, broadened_note, first_hit, query_candidates, within_price,
+    BROWSER_HEADERS,
+    broadened_note,
+    first_hit,
+    query_candidates,
+    within_price,
 )
+from services.catalog.reviews import sold_label
+from shared.categories import category_path
 
 logger = logging.getLogger("platforms.fpt")
 
@@ -20,7 +25,7 @@ FPT_DOMAIN = "https://fptshop.com.vn"
 _RSC_PUSH_RE = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', re.S)
 
 
-def parse_fpt_search(html: str) -> List[Dict[str, Any]]:
+def parse_fpt_search(html: str) -> list[dict[str, Any]]:
     """Sản phẩm trong trang tìm kiếm FPT Shop (/tim-kiem?s=...)."""
     try:
         rsc = "".join(json.loads('"' + p + '"') for p in _RSC_PUSH_RE.findall(html))
@@ -46,19 +51,21 @@ def parse_fpt_search(html: str) -> List[Dict[str, Any]]:
         points = [f"{p.get('title', '')} {p.get('description', '')}".strip() for p in it.get("keySellingPoints") or []]
         sold = (it.get("sold") or {}).get("realQuantity") or 0
         names = [(it.get(k) or {}).get("name") for k in ("industry", "productType", "group")]
-        items.append({
-            "id": f"fpt-{it.get('code') or slug.split('/')[-1]}",
-            "name": name,
-            "href": f"{FPT_DOMAIN}/{slug}",
-            "currentPrice": current,
-            "originalPrice": float(it.get("originalPrice") or current),
-            "discountPercent": int(it.get("discountPercentage") or 0),
-            "rating": float(it.get("averageScore") or 0),
-            "sold": sold_label(sold),
-            "image": str((it.get("image") or {}).get("src") or ""),
-            "specs": "; ".join(p for p in points if p),
-            "categoryPath": category_path("fpt-shop", [n for n in names if n]) if any(names) else "",
-        })
+        items.append(
+            {
+                "id": f"fpt-{it.get('code') or slug.split('/')[-1]}",
+                "name": name,
+                "href": f"{FPT_DOMAIN}/{slug}",
+                "currentPrice": current,
+                "originalPrice": float(it.get("originalPrice") or current),
+                "discountPercent": int(it.get("discountPercentage") or 0),
+                "rating": float(it.get("averageScore") or 0),
+                "sold": sold_label(sold),
+                "image": str((it.get("image") or {}).get("src") or ""),
+                "specs": "; ".join(p for p in points if p),
+                "categoryPath": category_path("fpt-shop", [n for n in names if n]) if any(names) else "",
+            }
+        )
     return items
 
 
@@ -74,8 +81,9 @@ class FptAdapter(JsonLdDetailAdapter):
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         """Thử các biến thể từ khóa như TGDĐ / ĐMX."""
-        async with httpx.AsyncClient(headers={**BROWSER_HEADERS, "Referer": f"{FPT_DOMAIN}/"},
-                                     follow_redirects=True, timeout=12.0) as client:
+        async with httpx.AsyncClient(
+            headers={**BROWSER_HEADERS, "Referer": f"{FPT_DOMAIN}/"}, follow_redirects=True, timeout=12.0
+        ) as client:
             raw, used = await first_hit(query_candidates(keyword, criteria), lambda q: self._fetch_search(client, q))
         if not raw:
             logger.info(f"[FPT Shop] Không có sản phẩm nào cho '{keyword}'")
@@ -86,7 +94,7 @@ class FptAdapter(JsonLdDetailAdapter):
         return [self._to_product(it, criteria) for it in raw if within_price(it["currentPrice"], criteria)][:limit]
 
     @staticmethod
-    async def _fetch_search(client, query: str) -> List[Dict[str, Any]]:
+    async def _fetch_search(client, query: str) -> list[dict[str, Any]]:
         try:
             resp = await client.get(f"{FPT_DOMAIN}/tim-kiem", params={"s": query})
         except httpx.HTTPError as e:
@@ -94,7 +102,7 @@ class FptAdapter(JsonLdDetailAdapter):
             return []
         return parse_fpt_search(resp.text) if resp.status_code == 200 else []
 
-    def _to_product(self, it: Dict[str, Any], criteria) -> Dict[str, Any]:
+    def _to_product(self, it: dict[str, Any], criteria) -> dict[str, Any]:
         return {
             **self.product_base(criteria),
             "id": it["id"],

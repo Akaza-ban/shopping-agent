@@ -1,13 +1,14 @@
 import json
 import os
 import re
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 EVAL_SET_PATH = os.path.join(_BACKEND_DIR, "tests", "fixtures", "rag_eval_set.json")
 
 
-def load_eval_set(path: str = EVAL_SET_PATH) -> List[Dict[str, Any]]:
+def load_eval_set(path: str = EVAL_SET_PATH) -> list[dict[str, Any]]:
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     macros = data.get("macros", {})
@@ -27,7 +28,7 @@ def load_eval_set(path: str = EVAL_SET_PATH) -> List[Dict[str, Any]]:
     return queries
 
 
-def is_relevant(q: Dict[str, Any], name: str, url: str) -> bool:
+def is_relevant(q: dict[str, Any], name: str, url: str) -> bool:
     if q.get("negative"):
         return False
     if q["_exclude"] and q["_exclude"].search(name):
@@ -42,10 +43,10 @@ def _key(name: str, url: str) -> str:
 
 
 def evaluate(
-    search: Callable[[Dict[str, Any]], List[Dict[str, Any]]],
-    corpus: List[Dict[str, Any]],
-    queries: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    search: Callable[[dict[str, Any]], list[dict[str, Any]]],
+    corpus: list[dict[str, Any]],
+    queries: list[dict[str, Any]],
+) -> dict[str, Any]:
     """search(q) -> danh sách sản phẩm đã xếp hạng (dict có name, externalUrl, currentPrice)."""
     rows, pos, neg = [], [], []
     for q in queries:
@@ -60,7 +61,7 @@ def evaluate(
     return {"summary": _summary(pos, neg), "rows": rows}
 
 
-def _dedupe(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _dedupe(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Bỏ kết quả trùng (cùng link, hoặc cùng tên khi không có link), giữ thứ hạng."""
     seen, ranked = set(), []
     for p in results:
@@ -71,7 +72,7 @@ def _dedupe(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return ranked
 
 
-def _relevant_keys(q: Dict[str, Any], corpus: List[Dict[str, Any]]) -> set:
+def _relevant_keys(q: dict[str, Any], corpus: list[dict[str, Any]]) -> set:
     """Các đáp án đúng có trong kho (đã áp ngân sách của câu hỏi)."""
     return {
         _key(m["name"], m.get("external_url", ""))
@@ -81,12 +82,17 @@ def _relevant_keys(q: Dict[str, Any], corpus: List[Dict[str, Any]]) -> set:
     }
 
 
-def _negative_row(q: Dict[str, Any], ranked: List[Dict[str, Any]]) -> Dict[str, Any]:
-    return {"query": q["query"], "negative": True, "returned": len(ranked), "ok": len(ranked) == 0,
-            "top": [p.get("name", "")[:50] for p in ranked[:3]]}
+def _negative_row(q: dict[str, Any], ranked: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "query": q["query"],
+        "negative": True,
+        "returned": len(ranked),
+        "ok": len(ranked) == 0,
+        "top": [p.get("name", "")[:50] for p in ranked[:3]],
+    }
 
 
-def _positive_row(q: Dict[str, Any], ranked: List[Dict[str, Any]], relevant: set) -> Dict[str, Any]:
+def _positive_row(q: dict[str, Any], ranked: list[dict[str, Any]], relevant: set) -> dict[str, Any]:
     flags = [is_relevant(q, p.get("name", ""), p.get("externalUrl", "")) for p in ranked]
     n_rel = len(relevant)
     first = next((i for i, f in enumerate(flags[:10]) if f), None)
@@ -100,11 +106,11 @@ def _positive_row(q: Dict[str, Any], ranked: List[Dict[str, Any]], relevant: set
         "recall@5": (sum(top5) / min(5, n_rel)) if n_rel else 0.0,
         "precision@5": (sum(top5) / len(top5)) if top5 else 0.0,
         "mrr@10": 1.0 / (first + 1) if first is not None else 0.0,
-        "top": [("OK  " if f else "SAI ") + p.get("name", "")[:50] for p, f in zip(ranked[:3], flags[:3])],
+        "top": [("OK  " if f else "SAI ") + p.get("name", "")[:50] for p, f in zip(ranked[:3], flags[:3], strict=True)],
     }
 
 
-def _summary(pos: List[Dict[str, Any]], neg: List[bool]) -> Dict[str, Any]:
+def _summary(pos: list[dict[str, Any]], neg: list[bool]) -> dict[str, Any]:
     def mean(key):
         return round(sum(r[key] for r in pos) / len(pos), 3) if pos else 0.0
 
@@ -116,11 +122,12 @@ def _summary(pos: List[Dict[str, Any]], neg: List[bool]) -> Dict[str, Any]:
     }
 
 
-def evaluate_service(service, queries: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+def evaluate_service(service, queries: list[dict[str, Any]] = None) -> dict[str, Any]:
     """Đánh giá một ProductRAGService (bỏ giới hạn độ mới để kết quả không phụ thuộc ngày chạy)."""
     return evaluate(
-        lambda q: service.search(q["query"], category=q.get("category"), max_price=q.get("max_price"),
-                                 limit=10, max_age_days=None),
+        lambda q: service.search(
+            q["query"], category=q.get("category"), max_price=q.get("max_price"), limit=10, max_age_days=None
+        ),
         service.corpus(),
         queries if queries is not None else load_eval_set(),
     )

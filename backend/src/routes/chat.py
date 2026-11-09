@@ -2,11 +2,12 @@
 
 Logic nằm ở application/chat.py và application/compare.py.
 """
+
 import json
 import logging
-from typing import Literal, Optional
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sse_starlette.sse import EventSourceResponse
 
 import application.chat as chat
@@ -15,23 +16,32 @@ from core.graph import ShopAIAgentWorkflow
 from database.models import UserModel
 from src.dependencies.auth import require_user
 from src.dependencies.providers import get_workflow
-from src.schemas.chat import ChatRequest, ChatResponse, CompareRequest
+from src.dependencies.rate_limit import rate_limit
+from src.schemas.chat import (
+    MAX_MESSAGE_CHARS,
+    MAX_PLATFORM_CHARS,
+    MAX_SESSION_ID_CHARS,
+    ChatRequest,
+    ChatResponse,
+    CompareRequest,
+)
 
 logger = logging.getLogger("chat_route")
 router = APIRouter(prefix="/chat", tags=["Chat"])
+chat_limit = [Depends(rate_limit("chat"))]
 
 
-@router.post("", response_model=ChatResponse)
-async def send_chat_message(req: ChatRequest, user: UserModel = Depends(require_user),
-                            workflow: ShopAIAgentWorkflow = Depends(get_workflow)):
-    return ChatResponse(**await chat.send_message(workflow, user, req.message, req.session_id, req.platform,
-                                                  req.language))
+@router.post("", response_model=ChatResponse, dependencies=chat_limit)
+async def send_chat_message(
+    req: ChatRequest, user: UserModel = Depends(require_user), workflow: ShopAIAgentWorkflow = Depends(get_workflow)
+):
+    return ChatResponse(
+        **await chat.send_message(workflow, user, req.message, req.session_id, req.platform, req.language)
+    )
 
 
-@router.post("/stream")
-async def chat_stream_post(req: ChatRequest, user: UserModel = Depends(require_user),
-                           workflow: ShopAIAgentWorkflow = Depends(get_workflow)):
-    """Streaming SSE: mỗi giai đoạn xử lý là một event (status, products, token, comparison, suggestions, done)."""
+async def _stream(req: ChatRequest, user: UserModel, workflow: ShopAIAgentWorkflow) -> EventSourceResponse:
+    """Mở luồng SSE: mỗi giai đoạn xử lý là một event (status, products, token, comparison, suggestions, done)."""
     _, events = await chat.stream_message(workflow, user, req.message, req.session_id, req.platform, req.language)
 
     async def sse_generator():
@@ -45,13 +55,26 @@ async def chat_stream_post(req: ChatRequest, user: UserModel = Depends(require_u
     return EventSourceResponse(sse_generator())
 
 
-@router.get("/stream")
-async def chat_stream_get(session_id: Optional[str] = None, message: str = "", platform: Optional[str] = "all",
-                          language: Literal["vi", "en"] = "vi", user: UserModel = Depends(require_user),
-                          workflow: ShopAIAgentWorkflow = Depends(get_workflow)):
+@router.post("/stream", dependencies=chat_limit)
+async def chat_stream_post(
+    req: ChatRequest, user: UserModel = Depends(require_user), workflow: ShopAIAgentWorkflow = Depends(get_workflow)
+):
+    """Streaming SSE: mỗi giai đoạn xử lý là một event (status, products, token, comparison, suggestions, done)."""
+    return await _stream(req, user, workflow)
+
+
+@router.get("/stream", dependencies=chat_limit)
+async def chat_stream_get(
+    session_id: str | None = Query(None, max_length=MAX_SESSION_ID_CHARS),
+    message: str = Query(..., min_length=1, max_length=MAX_MESSAGE_CHARS),
+    platform: str | None = Query("all", max_length=MAX_PLATFORM_CHARS),
+    language: Literal["vi", "en"] = "vi",
+    user: UserModel = Depends(require_user),
+    workflow: ShopAIAgentWorkflow = Depends(get_workflow),
+):
     """Bản GET cho EventSource của trình duyệt (token truyền qua ?access_token=)."""
     req = ChatRequest(session_id=session_id, message=message, platform=platform, language=language)
-    return await chat_stream_post(req, user, workflow)
+    return await _stream(req, user, workflow)
 
 
 @router.post("/compare")

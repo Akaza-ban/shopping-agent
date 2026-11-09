@@ -1,4 +1,5 @@
 """Middleware chạy quanh mọi request (CORS, ghi log)."""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

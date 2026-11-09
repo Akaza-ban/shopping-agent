@@ -1,4 +1,5 @@
 """Gửi email qua SMTP (cấu hình SMTP_* trong .env). Chưa cấu hình: môi trường development ghi link ra log để thử."""
+
 import asyncio
 import logging
 import smtplib
@@ -40,14 +41,18 @@ async def send_password_reset(to: str, name: str, link: str, ttl_minutes: int) -
         logger.error("Chưa cấu hình SMTP (SMTP_HOST, SMTP_FROM) nên không gửi được email đặt lại mật khẩu.")
         return False
     subject = "Shopping AI - Đặt lại mật khẩu"
-    text = (f"Xin chào {name},\n\nBạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu tài khoản Shopping AI.\n"
-            f"Mở link sau để đặt mật khẩu mới (hiệu lực {ttl_minutes} phút, dùng được một lần):\n{link}\n\n"
-            "Nếu bạn không yêu cầu, hãy bỏ qua email này; mật khẩu hiện tại vẫn giữ nguyên.")
-    html = (f"<p>Xin chào {_escape(name)},</p><p>Bạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu tài khoản Shopping AI.</p>"
-            f'<p><a href="{_escape(link)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fffbeb;'
-            f'border-radius:10px;text-decoration:none;font-weight:600">Đặt mật khẩu mới</a></p>'
-            f"<p>Link có hiệu lực {ttl_minutes} phút và chỉ dùng được một lần.</p>"
-            "<p>Nếu bạn không yêu cầu, hãy bỏ qua email này; mật khẩu hiện tại vẫn giữ nguyên.</p>")
+    text = (
+        f"Xin chào {name},\n\nBạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu tài khoản Shopping AI.\n"
+        f"Mở link sau để đặt mật khẩu mới (hiệu lực {ttl_minutes} phút, dùng được một lần):\n{link}\n\n"
+        "Nếu bạn không yêu cầu, hãy bỏ qua email này; mật khẩu hiện tại vẫn giữ nguyên."
+    )
+    html = (
+        f"<p>Xin chào {_escape(name)},</p><p>Bạn (hoặc ai đó) vừa yêu cầu đặt lại mật khẩu tài khoản Shopping AI.</p>"
+        f'<p><a href="{_escape(link)}" style="display:inline-block;padding:10px 18px;background:#1c1917;color:#fffbeb;'
+        f'border-radius:10px;text-decoration:none;font-weight:600">Đặt mật khẩu mới</a></p>'
+        f"<p>Link có hiệu lực {ttl_minutes} phút và chỉ dùng được một lần.</p>"
+        "<p>Nếu bạn không yêu cầu, hãy bỏ qua email này; mật khẩu hiện tại vẫn giữ nguyên.</p>"
+    )
     try:
         await asyncio.to_thread(_send, to, subject, text, html)
         return True

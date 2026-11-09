@@ -5,14 +5,20 @@ Kiểm thử registry các sàn (services/catalog/platforms):
 - categorize, màu nhãn, nhận diện sàn của router đều lấy từ registry.
 - EcomSearchTool chỉ gọi các sàn được yêu cầu và đan xen kết quả theo thứ tự registry.
 """
+
 import asyncio
 import sys
 
 from core.tools.ecom_search import EcomSearchTool
-from services.catalog.categories import categorize
 from integrations.platforms import (
-    PlatformAdapter, all_platforms, get_platform, platform_for_url, platform_mentioned, resolve_targets,
+    PlatformAdapter,
+    all_platforms,
+    get_platform,
+    platform_for_url,
+    platform_mentioned,
+    resolve_targets,
 )
+from services.catalog.categories import categorize
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -42,8 +48,13 @@ def test_names_resolve_to_platforms():
 
 
 def test_categorize_and_badges_come_from_platforms(_offline_category_resolver):
-    _offline_category_resolver.remember({"tgdd:dtdd": ("phones", False), "fpt-shop:/may-tinh-xach-tay": ("laptops", False),
-                                         "cellphones:Âm thanh/Tai nghe": ("audio", False)})
+    _offline_category_resolver.remember(
+        {
+            "tgdd:dtdd": ("phones", False),
+            "fpt-shop:/may-tinh-xach-tay": ("laptops", False),
+            "cellphones:Âm thanh/Tai nghe": ("audio", False),
+        }
+    )
     assert categorize({"externalUrl": "https://www.thegioididong.com/dtdd/iphone-16"}) == "phones"
     assert categorize({"externalUrl": "https://fptshop.com.vn/may-tinh-xach-tay/asus"}) == "laptops"
     assert categorize({"platform": "cellphones", "sourceCategoryPath": "cellphones:Âm thanh/Tai nghe"}) == "audio"
@@ -51,7 +62,10 @@ def test_categorize_and_badges_come_from_platforms(_offline_category_resolver):
 
     from database.models import ProductModel
     from database.repositories.product_repo import product_model_to_dict
-    product = product_model_to_dict(ProductModel(id="cps-1", name="x", platform="cellphones", current_price=1, original_price=1, rating=0.0))
+
+    product = product_model_to_dict(
+        ProductModel(id="cps-1", name="x", platform="cellphones", current_price=1, original_price=1, rating=0.0)
+    )
     assert product["platformBadgeColor"] == get_platform("cellphones").badge_color
 
 
@@ -59,9 +73,12 @@ def test_router_fallback_detects_platform_from_registry():
     """Đường dự phòng bằng từ khóa khi không gọi được LLM."""
     from core.agents.orchestrator import OrchestratorAgent
     from core.state import AgentState
+
     agent = OrchestratorAgent.__new__(OrchestratorAgent)
-    routed = {q: agent._fallback_route(AgentState(session_id="s", user_query=q)).criteria
-              for q in ("tìm mua iphone 16 ở fpt shop", "tìm mua laptop trên shopee", "tìm mua máy giặt")}
+    routed = {
+        q: agent._fallback_route(AgentState(session_id="s", user_query=q)).criteria
+        for q in ("tìm mua iphone 16 ở fpt shop", "tìm mua laptop trên shopee", "tìm mua máy giặt")
+    }
     assert routed["tìm mua iphone 16 ở fpt shop"].target_platforms == ["fpt-shop"]
     assert routed["tìm mua laptop trên shopee"].target_platforms == ["shopee"]  # sàn không hỗ trợ vẫn được ghi lại
     assert routed["tìm mua máy giặt"].target_platforms == ["all"]
@@ -73,9 +90,18 @@ class _Fake(PlatformAdapter):
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         self.calls += 1
-        return [{"id": f"{self.id}-{i}", "name": f"Laptop {self.id} {i}", "platform": self.id, "platformName": self.name,
-                 "currentPrice": 20_000_000 + i, "originalPrice": 20_000_000 + i,
-                 "externalUrl": f"https://{self.id}.vn/{i}"} for i in range(self.items)]
+        return [
+            {
+                "id": f"{self.id}-{i}",
+                "name": f"Laptop {self.id} {i}",
+                "platform": self.id,
+                "platformName": self.name,
+                "currentPrice": 20_000_000 + i,
+                "originalPrice": 20_000_000 + i,
+                "externalUrl": f"https://{self.id}.vn/{i}",
+            }
+            for i in range(self.items)
+        ]
 
 
 def test_crawl_only_calls_requested_platforms_and_interleaves():

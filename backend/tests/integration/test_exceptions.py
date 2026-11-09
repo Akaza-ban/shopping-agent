@@ -1,4 +1,5 @@
 """Tầng exception: đổi lỗi thư viện ở ranh giới, chỉ bắt đúng loại lỗi, đổi lỗi nghiệp vụ thành HTTP."""
+
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,11 +12,18 @@ from sqlalchemy.exc import OperationalError
 from core.agents.orchestrator import OrchestratorAgent
 from core.state import AgentState
 from database.errors import raises_database_error
-from integrations.platforms.errors import crawling
 from integrations.llm import ask_llm, parse_llm_json, stream_llm
+from integrations.platforms.errors import crawling
 from shared.exceptions import (
-    AppError, CrawlerError, DatabaseError, DomainError, EmailAlreadyRegistered, LLMError, LLMResponseError,
-    NotFoundError, PermissionDeniedError,
+    AppError,
+    CrawlerError,
+    DatabaseError,
+    DomainError,
+    EmailAlreadyRegistered,
+    LLMError,
+    LLMResponseError,
+    NotFoundError,
+    PermissionDeniedError,
 )
 from shared.fallback import fallback
 from src.errors import register_error_handlers
@@ -79,7 +87,9 @@ async def test_stream_llm_translates_provider_errors():
 @pytest.mark.asyncio
 async def test_orchestrator_falls_back_when_llm_returns_invalid_criteria():
     model = MagicMock()
-    model.ainvoke = AsyncMock(return_value=MagicMock(content='{"intent": "search_products", "criteria": {"max_price": "abc"}}'))
+    model.ainvoke = AsyncMock(
+        return_value=MagicMock(content='{"intent": "search_products", "criteria": {"max_price": "abc"}}')
+    )
     state = AgentState(session_id="test-exc-route", user_query="tìm laptop dưới 20 triệu")
     with patch("core.agents.orchestrator.get_chat_model", return_value=model):
         result = await OrchestratorAgent().route(state)
@@ -119,7 +129,7 @@ def test_crawling_translates_known_errors_only():
     assert info.value.source == "Tiki" and "[Tiki]" in str(info.value)
     with pytest.raises(ZeroDivisionError):
         with crawling("Tiki"):
-            1 / 0
+            _ = 1 / 0
 
 
 # fallback()
@@ -176,6 +186,7 @@ def test_service_errors_become_503_without_leaking_details():
 def test_real_app_auth_error_keeps_bearer_header():
     from src.dependencies.auth import require_user
     from src.main import app
+
     override = app.dependency_overrides.pop(require_user, None)  # conftest giả lập đã đăng nhập
     try:
         res = TestClient(app).get("/api/auth/me")

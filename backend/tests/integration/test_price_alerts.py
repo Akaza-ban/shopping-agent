@@ -7,18 +7,20 @@ Kiểm thử theo dõi giá (chạy offline): DB SQLite tạm, giá hiện tại
 - Sàn báo hết hàng -> không báo đạt giá. Mỗi lần kiểm tra ghi vào bảng price_checks.
 - init_db bổ sung cột mới vào bảng price_alerts cũ.
 """
+
 import asyncio
 import sys
 
 from sqlalchemy import inspect, text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.connection import Base, _add_missing_columns
 from database.repositories.alert_repo import AlertRepository, PriceCheckRepository
 from database.repositories.product_repo import ProductRepository
+from integrations.platforms.common import parse_availability as parse_mwg_availability
+from integrations.platforms.common import parse_offer_price as parse_mwg_price
 from jobs.price_watcher import PriceWatcherService
-from integrations.platforms.common import parse_availability as parse_mwg_availability, parse_offer_price as parse_mwg_price
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -46,19 +48,40 @@ async def _setup(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'alerts.db'}")
     async with engine.begin() as conn:
         from database import models  # noqa: F401
+
         await conn.run_sync(Base.metadata.create_all)
     factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     return engine, AlertRepository(factory), ProductRepository(factory)
 
 
 async def _new_alert(alerts, products, pid, price, target):
-    await products.upsert_products([{"id": pid, "name": f"Laptop thử nghiệm {pid}", "platform": "tgdd",
-                                     "platformName": "TGDĐ", "currentPrice": price, "externalUrl": f"https://www.thegioididong.com/laptop/{pid}"}])
-    return await alerts.create({
-        "id": f"alert-{pid}", "product_id": pid, "product_name": f"Laptop thử nghiệm {pid}", "product_url": f"https://www.thegioididong.com/laptop/{pid}",
-        "platform": "tgdd", "platform_name": "TGDĐ", "target_price": target,
-        "initial_price": price, "last_price": price, "lowest_price": price, "status": "watching",
-    })
+    await products.upsert_products(
+        [
+            {
+                "id": pid,
+                "name": f"Laptop thử nghiệm {pid}",
+                "platform": "tgdd",
+                "platformName": "TGDĐ",
+                "currentPrice": price,
+                "externalUrl": f"https://www.thegioididong.com/laptop/{pid}",
+            }
+        ]
+    )
+    return await alerts.create(
+        {
+            "id": f"alert-{pid}",
+            "product_id": pid,
+            "product_name": f"Laptop thử nghiệm {pid}",
+            "product_url": f"https://www.thegioididong.com/laptop/{pid}",
+            "platform": "tgdd",
+            "platform_name": "TGDĐ",
+            "target_price": target,
+            "initial_price": price,
+            "last_price": price,
+            "lowest_price": price,
+            "status": "watching",
+        }
+    )
 
 
 def test_watcher_triggers_and_records_history(tmp_path):
@@ -110,11 +133,14 @@ def test_init_db_adds_new_alert_columns(tmp_path):
         engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'old.db'}")
         async with engine.begin() as conn:
             # Bảng price_alerts phiên bản cũ (chưa có product_id, status...)
-            await conn.execute(text(
-                "CREATE TABLE price_alerts (id VARCHAR PRIMARY KEY, product_name VARCHAR NOT NULL, target_price FLOAT NOT NULL, "
-                "platform VARCHAR, user_email VARCHAR NOT NULL, created_at DATETIME)"
-            ))
+            await conn.execute(
+                text(
+                    "CREATE TABLE price_alerts (id VARCHAR PRIMARY KEY, product_name VARCHAR NOT NULL, target_price FLOAT NOT NULL, "
+                    "platform VARCHAR, user_email VARCHAR NOT NULL, created_at DATETIME)"
+                )
+            )
             from database import models  # noqa: F401
+
             await conn.run_sync(Base.metadata.create_all)
             await conn.run_sync(_add_missing_columns)
             cols = await conn.run_sync(lambda c: {col["name"] for col in inspect(c).get_columns("price_alerts")})
@@ -130,6 +156,7 @@ def _run_checks(tmp_path, readings, price=25_000_000, target=20_000_000, rounds=
     readings: kết quả lần lượt cho mỗi lần đọc trang (số = giá còn hàng, dict = kết quả đầy đủ).
     Trả về (trạng thái alert sau mỗi vòng, lịch sử giá, lần đọc còn thừa[, nhật ký kiểm tra]).
     """
+
     async def scenario():
         engine, alerts, products = await _setup(tmp_path)
         factory = alerts.session_factory
@@ -149,6 +176,7 @@ def _run_checks(tmp_path, readings, price=25_000_000, target=20_000_000, rounds=
         log = await checks.list(alert_id="alert-p") if checks else None
         await engine.dispose()
         return (states, history, queue, log) if with_log else (states, history, queue)
+
     return asyncio.run(scenario())
 
 
@@ -242,13 +270,33 @@ def test_tiki_reading_uses_category_from_platform(tmp_path):
     # Tiki không có slug trong link: danh mục lấy từ mã sàn trả về cùng lần đọc giá
     async def scenario():
         engine, alerts, products = await _setup(tmp_path)
-        await products.upsert_products([{"id": "tiki-1", "name": "Dell Inspiron 15", "platform": "tiki", "platformName": "Tiki",
-                                         "currentPrice": 25_000_000, "externalUrl": "https://tiki.vn/p1.html"}])
-        await alerts.create({
-            "id": "alert-tiki", "product_id": "tiki-1", "product_name": "Dell Inspiron 15", "product_url": "https://tiki.vn/p1.html",
-            "platform": "tiki", "platform_name": "Tiki", "target_price": 20_000_000,
-            "initial_price": 25_000_000, "last_price": 25_000_000, "lowest_price": 25_000_000, "status": "watching",
-        })
+        await products.upsert_products(
+            [
+                {
+                    "id": "tiki-1",
+                    "name": "Dell Inspiron 15",
+                    "platform": "tiki",
+                    "platformName": "Tiki",
+                    "currentPrice": 25_000_000,
+                    "externalUrl": "https://tiki.vn/p1.html",
+                }
+            ]
+        )
+        await alerts.create(
+            {
+                "id": "alert-tiki",
+                "product_id": "tiki-1",
+                "product_name": "Dell Inspiron 15",
+                "product_url": "https://tiki.vn/p1.html",
+                "platform": "tiki",
+                "platform_name": "Tiki",
+                "target_price": 20_000_000,
+                "initial_price": 25_000_000,
+                "last_price": 25_000_000,
+                "lowest_price": 25_000_000,
+                "status": "watching",
+            }
+        )
 
         async def reading(product):
             return {"currentPrice": 150_000, "inStock": True, "sourceCategoryPath": "1/2/1846/8095"}
@@ -266,8 +314,15 @@ def test_tiki_reading_uses_category_from_platform(tmp_path):
 def test_product_keeps_platform_category(tmp_path):
     async def scenario():
         engine, _, products = await _setup(tmp_path)
-        item = {"id": "tiki-2", "name": "Dell Inspiron 15", "platform": "tiki", "platformName": "Tiki", "category": "phones",
-                "currentPrice": 25_000_000, "externalUrl": "https://tiki.vn/p2.html"}
+        item = {
+            "id": "tiki-2",
+            "name": "Dell Inspiron 15",
+            "platform": "tiki",
+            "platformName": "Tiki",
+            "category": "phones",
+            "currentPrice": 25_000_000,
+            "externalUrl": "https://tiki.vn/p2.html",
+        }
         first = (await products.upsert_products([{**item, "sourceCategoryPath": "1/2/1846/8095"}]))[0]
         # Lần cào sau không kèm mã: vẫn giữ mã đã lưu, không lấy nhãn theo câu hỏi tìm kiếm
         second = (await products.upsert_products([{**item, "currentPrice": 24_000_000}]))[0]

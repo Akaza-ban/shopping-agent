@@ -1,4 +1,5 @@
 """API tài khoản và dữ liệu cá nhân. Logic nằm ở application/auth.py và application/user_data.py."""
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 import application.auth as auth
@@ -6,7 +7,11 @@ import application.user_data as user_data
 from database.models import UserModel
 from src.dependencies.auth import require_user
 from src.schemas.auth import (
-    ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest,
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
     UpdateProfileRequest,
 )
 

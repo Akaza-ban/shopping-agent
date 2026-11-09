@@ -2,24 +2,35 @@
 
 Quy đổi danh mục của từng sàn sang mã chuẩn (cần bảng đã học + LLM): services/catalog/category_resolver.py.
 """
-from typing import Optional
 
 CANONICAL = {"laptops", "phones", "audio", "home_appliances", "fashion", "monitors", "beauty", "wearables", "other"}
 FALLBACK = "other"
 LABELS = {
-    "laptops": "laptop", "phones": "điện thoại / máy tính bảng", "audio": "thiết bị âm thanh",
-    "home_appliances": "đồ gia dụng, điện máy", "fashion": "thời trang", "monitors": "màn hình máy tính",
-    "beauty": "làm đẹp, sức khỏe", "wearables": "đồng hồ / thiết bị đeo thông minh", "other": "khác (phụ kiện, linh kiện...)",
+    "laptops": "laptop",
+    "phones": "điện thoại / máy tính bảng",
+    "audio": "thiết bị âm thanh",
+    "home_appliances": "đồ gia dụng, điện máy",
+    "fashion": "thời trang",
+    "monitors": "màn hình máy tính",
+    "beauty": "làm đẹp, sức khỏe",
+    "wearables": "đồng hồ / thiết bị đeo thông minh",
+    "other": "khác (phụ kiện, linh kiện...)",
 }
 
 _ALIASES = {
-    "laptop": "laptops", "notebook": "laptops", "phone": "phones", "smartphone": "phones",
-    "headphone": "audio", "home_appliance": "home_appliances", "appliances": "home_appliances",
-    "monitor": "monitors", "wearable": "wearables",
+    "laptop": "laptops",
+    "notebook": "laptops",
+    "phone": "phones",
+    "smartphone": "phones",
+    "headphone": "audio",
+    "home_appliance": "home_appliances",
+    "appliances": "home_appliances",
+    "monitor": "monitors",
+    "wearable": "wearables",
 }
 
 
-def canonical_code(code: Optional[str]) -> Optional[str]:
+def canonical_code(code: str | None) -> str | None:
     if not code:
         return None
     c = code.strip().lower()

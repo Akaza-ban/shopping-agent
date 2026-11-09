@@ -1,9 +1,13 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
 from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+
 from ..connection import Base
+
 
 class AlertModel(Base):
     """Theo dõi giá: báo khi giá bán của một sản phẩm cụ thể giảm xuống mức mong muốn."""
+
     __tablename__ = "price_alerts"
 
     id = Column(String, primary_key=True, index=True)
@@ -32,6 +36,7 @@ class AlertModel(Base):
 
 class PriceCheckModel(Base):
     """Nhật ký từng lần kiểm tra giá (kết quả guardrails), thay cho danh sách trong RAM."""
+
     __tablename__ = "price_checks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

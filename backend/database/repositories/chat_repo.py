@@ -2,24 +2,32 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..connection import async_session
 from ..errors import raises_database_error
-from ..models import ChatSessionModel, ChatMessageModel, ConversationStateModel
+from ..models import ChatMessageModel, ChatSessionModel, ConversationStateModel
 
 logger = logging.getLogger("chat_repo")
 
-def _stored_json(text: Optional[str], opener: str, empty: Any) -> Any:
+
+def _stored_json(text: str | None, opener: str, empty: Any) -> Any:
     """Danh sách / đối tượng JSON lưu trong cột text; cột trống hoặc không đúng dạng (opener "[" / "{") -> empty."""
     return json.loads(text) if text and text.startswith(opener) else empty
 
 
-def _message(session_id: str, sender: str, text: str, now: datetime, msg_id: str,
-             products: Optional[List[Dict[str, Any]]] = None, criteria: Optional[Dict[str, Any]] = None) -> ChatMessageModel:
+def _message(
+    session_id: str,
+    sender: str,
+    text: str,
+    now: datetime,
+    msg_id: str,
+    products: list[dict[str, Any]] | None = None,
+    criteria: dict[str, Any] | None = None,
+) -> ChatMessageModel:
     return ChatMessageModel(
         id=msg_id,
         session_id=session_id,
@@ -37,7 +45,7 @@ class ChatRepository:
     def __init__(self, session_factory=async_session):
         self.session_factory = session_factory
 
-    async def get_messages(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    async def get_messages(self, session_id: str, limit: int = 20) -> list[dict[str, Any]]:
         async with self.session_factory() as session:
             try:
                 stmt = (
@@ -57,7 +65,7 @@ class ChatRepository:
                         "text": r.text,
                         "products": _stored_json(r.products_json, "[", []),
                         "criteria": _stored_json(r.criteria_json, "{", {}),
-                        "timestamp": r.timestamp or r.created_at.strftime("%H:%M")
+                        "timestamp": r.timestamp or r.created_at.strftime("%H:%M"),
                     }
                     for r in recent_records
                 ]
@@ -65,7 +73,7 @@ class ChatRepository:
                 logger.warning(f"Lỗi lấy tin nhắn session {session_id}: {e}")
                 return []
 
-    async def get_last_context(self, session_id: str) -> Dict[str, Any]:
+    async def get_last_context(self, session_id: str) -> dict[str, Any]:
         async with self.session_factory() as session:
             try:
                 # Tìm tin nhắn gần nhất có chứa sản phẩm
@@ -91,10 +99,7 @@ class ChatRepository:
                     except ValueError:
                         pass
 
-                return {
-                    "last_products": last_products,
-                    "last_criteria": last_criteria
-                }
+                return {"last_products": last_products, "last_criteria": last_criteria}
             except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 logger.warning(f"Lỗi lấy ngữ cảnh gần nhất session {session_id}: {e}")
                 return {"last_products": [], "last_criteria": {}}
@@ -104,16 +109,22 @@ class ChatRepository:
         session_id: str,
         user_text: str,
         ai_text: str,
-        products: Optional[List[Dict[str, Any]]] = None,
-        criteria: Optional[Dict[str, Any]] = None
+        products: list[dict[str, Any]] | None = None,
+        criteria: dict[str, Any] | None = None,
     ) -> None:
         """Lưu tin nhắn người dùng và câu trả lời của AI (kèm sản phẩm, tiêu chí); tạo phiên chat nếu chưa có."""
         async with self.session_factory() as session:
             try:
                 now = datetime.utcnow()
                 if await session.get(ChatSessionModel, session_id) is None:
-                    session.add(ChatSessionModel(id=session_id, title=user_text[:40] if user_text else "Đoạn chat mới",
-                                                 summary="", created_at=now))
+                    session.add(
+                        ChatSessionModel(
+                            id=session_id,
+                            title=user_text[:40] if user_text else "Đoạn chat mới",
+                            summary="",
+                            created_at=now,
+                        )
+                    )
                 now_ms = int(time.time() * 1000)
                 session.add(_message(session_id, "user", user_text, now, f"msg-user-{now_ms}"))
                 session.add(_message(session_id, "ai", ai_text, now, f"msg-ai-{now_ms + 1}", products, criteria))
@@ -128,8 +139,15 @@ class ChatRepository:
         async with self.session_factory() as session:
             existing = await session.get(ChatSessionModel, session_id)
             if existing is None:
-                session.add(ChatSessionModel(id=session_id, title=(title or "Đoạn chat mới")[:40],
-                                             summary="", created_at=datetime.utcnow(), user_id=user_id))
+                session.add(
+                    ChatSessionModel(
+                        id=session_id,
+                        title=(title or "Đoạn chat mới")[:40],
+                        summary="",
+                        created_at=datetime.utcnow(),
+                        user_id=user_id,
+                    )
+                )
             elif existing.user_id is None:
                 existing.user_id = user_id
             elif existing.user_id != user_id:
@@ -137,12 +155,12 @@ class ChatRepository:
             await session.commit()
             return True
 
-    async def get_session_owner(self, session_id: str) -> Optional[str]:
+    async def get_session_owner(self, session_id: str) -> str | None:
         async with self.session_factory() as session:
             existing = await session.get(ChatSessionModel, session_id)
             return existing.user_id if existing else None
 
-    async def get_conversation_state(self, session_id: str) -> Dict[str, Any]:
+    async def get_conversation_state(self, session_id: str) -> dict[str, Any]:
         async with self.session_factory() as session:
             try:
                 record = await session.get(ConversationStateModel, session_id)
@@ -151,7 +169,7 @@ class ChatRepository:
                 logger.warning(f"Lỗi lấy trạng thái hội thoại session {session_id}: {e}")
                 return {}
 
-    async def save_conversation_state(self, session_id: str, state: Dict[str, Any]) -> None:
+    async def save_conversation_state(self, session_id: str, state: dict[str, Any]) -> None:
         async with self.session_factory() as session:
             try:
                 record = await session.get(ConversationStateModel, session_id)
@@ -160,7 +178,9 @@ class ChatRepository:
                     record.state_json = payload
                     record.updated_at = datetime.utcnow()
                 else:
-                    session.add(ConversationStateModel(session_id=session_id, state_json=payload, updated_at=datetime.utcnow()))
+                    session.add(
+                        ConversationStateModel(session_id=session_id, state_json=payload, updated_at=datetime.utcnow())
+                    )
                 await session.commit()
             except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 await session.rollback()
@@ -169,19 +189,16 @@ class ChatRepository:
     async def clear_session(self, session_id: str) -> None:
         async with self.session_factory() as session:
             try:
-                await session.execute(
-                    delete(ChatMessageModel).where(ChatMessageModel.session_id == session_id)
-                )
+                await session.execute(delete(ChatMessageModel).where(ChatMessageModel.session_id == session_id))
                 await session.execute(
                     delete(ConversationStateModel).where(ConversationStateModel.session_id == session_id)
                 )
-                await session.execute(
-                    delete(ChatSessionModel).where(ChatSessionModel.id == session_id)
-                )
+                await session.execute(delete(ChatSessionModel).where(ChatSessionModel.id == session_id))
                 await session.commit()
                 logger.info(f"[ChatRepo] Đã xóa session '{session_id}'.")
             except (SQLAlchemyError, ValueError) as e:  # ValueError: cột JSON hỏng
                 await session.rollback()
                 logger.error(f"Lỗi khi xóa session {session_id}: {e}")
+
 
 chat_repository = ChatRepository()

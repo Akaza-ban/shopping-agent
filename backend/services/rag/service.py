@@ -1,25 +1,28 @@
 """RAG sản phẩm trên ChromaDB: truy xuất lai vector (bge-m3 qua API) + BM25, hợp nhất bằng RRF."""
+
 import logging
 import os
 import sqlite3
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from chromadb.errors import ChromaError
 
+from integrations.embedding import APIEmbeddings, EmbeddingError, build_default_embeddings, cosine_distance
 from services.rag.bm25 import BM25Index
 from services.rag.documents import Product, build_document, build_metadata, product_from_metadata, product_id
-from integrations.embedding import APIEmbeddings, EmbeddingError, build_default_embeddings, cosine_distance
 from services.rag.filters import SearchFilters
 from services.rag.scoring import Candidate, Thresholds
 from services.rag.text import query_terms
 
 logger = logging.getLogger("rag_service")
 
-DEFAULT_CHROMA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "chroma_db")
+DEFAULT_CHROMA_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "chroma_db"
+)
 RRF_K = 60
 
 # Lỗi ChromaDB có thể ném ra (bản Rust ném RuntimeError / ValueError, lớp lưu trữ ném sqlite3.Error / OSError).
@@ -32,14 +35,15 @@ class ProductRAGService:
     def __init__(
         self,
         persist_directory: str = DEFAULT_CHROMA_PATH,
-        collection_name: Optional[str] = None,
-        embedder: Optional[APIEmbeddings] = None,
-        max_age_days: Optional[int] = None,
-        disabled_platforms: Optional[List[str]] = None,
+        collection_name: str | None = None,
+        embedder: APIEmbeddings | None = None,
+        max_age_days: int | None = None,
+        disabled_platforms: list[str] | None = None,
         thresholds: Thresholds = Thresholds(),
         hybrid: bool = True,
     ):
         from shared.config import settings
+
         self.persist_directory = persist_directory
         self.collection_name = collection_name or settings.RAG_COLLECTION
         self.embedder = embedder or build_default_embeddings()
@@ -52,10 +56,9 @@ class ProductRAGService:
 
         self._client = None
         self._collection = None
-        self._bm25: Optional[BM25Index] = None
+        self._bm25: BM25Index | None = None
         self._bm25_lock = threading.Lock()
         self._connect()
-
 
     def _connect(self):
         try:
@@ -64,7 +67,9 @@ class ProductRAGService:
                 path=self.persist_directory, settings=ChromaSettings(anonymized_telemetry=False)
             )
             self._collection = self._get_or_create()
-            logger.info(f"[ChromaDB] '{self.collection_name}' ({self.embedder.model}), {self._collection.count()} sản phẩm")
+            logger.info(
+                f"[ChromaDB] '{self.collection_name}' ({self.embedder.model}), {self._collection.count()} sản phẩm"
+            )
         except VECTOR_STORE_ERRORS as e:
             logger.error(f"[ChromaDB] Lỗi khởi tạo Vector Database: {e}", exc_info=True)
             self._client = self._collection = None
@@ -85,19 +90,18 @@ class ProductRAGService:
                 self._bm25 = BM25Index(data["ids"], data["documents"], data["metadatas"])
             return self._bm25
 
-
-    def upsert_products(self, products: List[Product], timestamps: Optional[List[int]] = None) -> int:
+    def upsert_products(self, products: list[Product], timestamps: list[int] | None = None) -> int:
         """Nạp / cập nhật sản phẩm (id sản phẩm làm id tài liệu -> không trùng lặp)."""
         if not self._collection or not products:
             return 0
 
-        ids: List[str] = []
+        ids: list[str] = []
         for p in products:
             ids.append(product_id(p, set(ids)))
         documents = [build_document(p) for p in products]
         metadatas = [
             build_metadata(pid, p, timestamps[i] if timestamps else None)
-            for i, (pid, p) in enumerate(zip(ids, products))
+            for i, (pid, p) in enumerate(zip(ids, products, strict=True))
         ]
 
         try:
@@ -115,16 +119,18 @@ class ProductRAGService:
         logger.info(f"[RAG Upsert] {len(ids)} sản phẩm, tổng kho {self._collection.count()}")
         return len(ids)
 
-
     def _filters(self, category, min_price, max_price, platform, max_age_days) -> SearchFilters:
         return SearchFilters(
-            category=category, platform=platform, min_price=min_price, max_price=max_price,
+            category=category,
+            platform=platform,
+            min_price=min_price,
+            max_price=max_price,
             max_age_days=self.max_age_days if max_age_days is _FROM_CONFIG else max_age_days,
             excluded_platforms=self.disabled_platforms,
         )
 
-    def _vector_ranking(self, q_vec: List[float], filters: SearchFilters, n: int):
-        kwargs: Dict[str, Any] = {
+    def _vector_ranking(self, q_vec: list[float], filters: SearchFilters, n: int):
+        kwargs: dict[str, Any] = {
             "query_embeddings": [q_vec],
             "n_results": min(n, self._collection.count()),
             "include": ["distances"],
@@ -133,18 +139,18 @@ class ProductRAGService:
         if where:
             kwargs["where"] = where
         res = self._collection.query(**kwargs)
-        return res["ids"][0], dict(zip(res["ids"][0], res["distances"][0]))
+        return res["ids"][0], dict(zip(res["ids"][0], res["distances"][0], strict=True))
 
     def retrieve_candidates(
         self,
         query: str,
-        category: Optional[str] = None,
-        min_price: Optional[float] = None,
-        max_price: Optional[float] = None,
-        platform: Optional[str] = None,
+        category: str | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        platform: str | None = None,
         n: int = 20,
         max_age_days: Any = _FROM_CONFIG,
-    ) -> List[Candidate]:
+    ) -> list[Candidate]:
         """Ứng viên trước khi áp ngưỡng, sắp theo điểm RRF."""
         if not self._collection or not query.strip() or self._collection.count() == 0:
             return []
@@ -160,7 +166,7 @@ class ProductRAGService:
             logger.warning(f"[RAG] Embedding API không dùng được, chỉ tìm theo từ khóa: {e}")
         bm25_ids = bm25.top(terms, n, filters.matcher()) if (self.hybrid or q_vec is None) else []
 
-        rrf: Dict[str, float] = {}
+        rrf: dict[str, float] = {}
         for ranking in (vec_ids, bm25_ids):
             for rank, pid in enumerate(ranking):
                 rrf[pid] = rrf.get(pid, 0.0) + 1.0 / (RRF_K + rank + 1)
@@ -168,11 +174,14 @@ class ProductRAGService:
         missing = [pid for pid in rrf if pid not in distances]
         if q_vec is not None and missing:
             got = self._collection.get(ids=missing, include=["embeddings"])
-            distances.update({pid: cosine_distance(q_vec, list(e)) for pid, e in zip(got["ids"], got["embeddings"])})
+            distances.update(
+                {pid: cosine_distance(q_vec, list(e)) for pid, e in zip(got["ids"], got["embeddings"], strict=True)}
+            )
 
         return [
-            Candidate(id=pid, meta=bm25.meta(pid), rrf=score, coverage=bm25.coverage(pid, terms),
-                      distance=distances.get(pid))
+            Candidate(
+                id=pid, meta=bm25.meta(pid), rrf=score, coverage=bm25.coverage(pid, terms), distance=distances.get(pid)
+            )
             for pid, score in sorted(rrf.items(), key=lambda kv: kv[1], reverse=True)
             if bm25.meta(pid) is not None
         ]
@@ -180,13 +189,13 @@ class ProductRAGService:
     def search(
         self,
         query: str,
-        category: Optional[str] = None,
-        min_price: Optional[float] = None,
-        max_price: Optional[float] = None,
-        platform: Optional[str] = None,
+        category: str | None = None,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        platform: str | None = None,
         limit: int = 4,
         max_age_days: Any = _FROM_CONFIG,
-    ) -> List[Product]:
+    ) -> list[Product]:
         """Sản phẩm đạt ngưỡng (kèm aiMatchScore, updatedAt); [] khi không có hoặc lỗi."""
         try:
             candidates = self.retrieve_candidates(
@@ -207,12 +216,13 @@ class ProductRAGService:
                 break
 
         top = f"top {matched[0]['aiMatchScore']}%" if matched else "không có sản phẩm đạt ngưỡng"
-        logger.info(f"[RAG Search] '{query}' (category={category}, price≤{max_price}) -> "
-                    f"{len(matched)}/{len(candidates)} ứng viên, {top}")
+        logger.info(
+            f"[RAG Search] '{query}' (category={category}, price≤{max_price}) -> "
+            f"{len(matched)}/{len(candidates)} ứng viên, {top}"
+        )
         return matched
 
-
-    def prune(self, max_age_days: Optional[int] = None) -> int:
+    def prune(self, max_age_days: int | None = None) -> int:
         """Xóa sản phẩm quá cũ và sản phẩm của sàn đang tắt; trả về số bản ghi đã xóa."""
         if not self._collection:
             return 0
@@ -231,7 +241,7 @@ class ProductRAGService:
             logger.info(f"[RAG Prune] Đã xóa {len(ids)} sản phẩm cũ / thuộc sàn đang tắt.")
         return len(ids)
 
-    def delete_products(self, ids: List[str]) -> int:
+    def delete_products(self, ids: list[str]) -> int:
         """Xóa các tài liệu theo id (VD: sản phẩm có giá sai bị guardrails loại)."""
         if not self._collection or not ids:
             return 0
@@ -241,14 +251,14 @@ class ProductRAGService:
             self._invalidate_bm25()
         return len(existing)
 
-    def corpus(self) -> List[Dict[str, Any]]:
+    def corpus(self) -> list[dict[str, Any]]:
         """Metadata của toàn bộ kho (dùng cho đánh giá / thống kê)."""
         return self._collection.get(include=["metadatas"])["metadatas"] if self._collection else []
 
     def count(self) -> int:
         return self._collection.count() if self._collection else 0
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {
             "status": "ready" if self._collection else "error",
             "collection_name": self.collection_name,

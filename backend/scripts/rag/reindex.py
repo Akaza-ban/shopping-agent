@@ -1,22 +1,22 @@
 import argparse
-import json
 import asyncio
+import json
 import os
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import httpx  # noqa: E402
 import chromadb  # noqa: E402
+import httpx  # noqa: E402
 from chromadb.config import Settings as ChromaSettings  # noqa: E402
 from chromadb.errors import NotFoundError  # noqa: E402
 
-from shared.categories import tiki_path_from_breadcrumbs  # noqa: E402
 from services.catalog.category_resolver import category_resolver  # noqa: E402
 from services.rag import DEFAULT_CHROMA_PATH, ProductRAGService  # noqa: E402
+from shared.categories import tiki_path_from_breadcrumbs  # noqa: E402
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -40,8 +40,9 @@ def _from_old_collection(name: str):
 
 
 def _from_sqlite():
-    from database.repositories.product_repo import product_model_to_dict
     from database.models.product import ProductModel
+    from database.repositories.product_repo import product_model_to_dict
+
     db_path = os.path.join(BACKEND_DIR, "shopai.db")
     if not os.path.exists(db_path):
         return []
@@ -59,7 +60,7 @@ def _from_sqlite():
         model = ProductModel(**{k: v for k, v in row.items() if hasattr(ProductModel, k)})
         p = product_model_to_dict(model)
         # SQLite lưu giờ UTC không kèm múi giờ
-        ts = int(model.updated_at.replace(tzinfo=timezone.utc).timestamp()) if model.updated_at else 0
+        ts = int(model.updated_at.replace(tzinfo=UTC).timestamp()) if model.updated_at else 0
         out.append((p, ts))
     return out
 
@@ -122,8 +123,10 @@ def main():
     t0 = time.time()
     done = 0
     for i in range(0, len(products), 64):
-        done += rag.upsert_products(products[i:i + 64], timestamps=timestamps[i:i + 64])
-    print(f"Đã nạp {done}/{len(products)} vào '{rag.collection_name}' ({rag.embedder.model}) trong {time.time() - t0:.1f}s")
+        done += rag.upsert_products(products[i : i + 64], timestamps=timestamps[i : i + 64])
+    print(
+        f"Đã nạp {done}/{len(products)} vào '{rag.collection_name}' ({rag.embedder.model}) trong {time.time() - t0:.1f}s"
+    )
     print(f"Dọn bản ghi cũ / sàn tắt: {rag.prune()} | Tổng kho: {rag.count()}")
 
 
@@ -159,11 +162,18 @@ def _merge_versions(a, b):
     product = newer[0]
     # Thông số làm giàu từ trang chi tiết có thể chỉ nằm ở bản cũ
     if not isinstance(product.get("specs"), dict) and isinstance(older[0].get("specs"), dict):
-        product = {**product, "specs": older[0]["specs"], "warranty": older[0].get("warranty") or product.get("warranty")}
+        product = {
+            **product,
+            "specs": older[0]["specs"],
+            "warranty": older[0].get("warranty") or product.get("warranty"),
+        }
     # Sản phẩm SQLite cũ có thể chưa có mã danh mục của sàn
     if not product.get("sourceCategoryPath") and older[0].get("sourceCategoryPath"):
-        product = {**product, "sourceCategoryPath": older[0]["sourceCategoryPath"],
-                   "sourceCategoryName": older[0].get("sourceCategoryName", "")}
+        product = {
+            **product,
+            "sourceCategoryPath": older[0]["sourceCategoryPath"],
+            "sourceCategoryName": older[0].get("sourceCategoryName", ""),
+        }
     return product, newer[1]
 
 

@@ -2,9 +2,10 @@
 
 Ghi chú (notes) được đưa vào prompt để Advisor không khẳng định điều chưa xác minh.
 """
+
 import re
-from datetime import datetime, timezone
-from typing import Any, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from services.catalog.ranker import verifiable_attributes
 from shared.types import RawProduct
@@ -19,8 +20,9 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\-_]+", "", s.lower())
 
 
-def annotate(products: List[RawProduct], criteria: Optional[UniversalSearchCriteria],
-             notes: List[str]) -> List[RawProduct]:
+def annotate(
+    products: list[RawProduct], criteria: UniversalSearchCriteria | None, notes: list[str]
+) -> list[RawProduct]:
     """Đưa sản phẩm xác nhận đúng thông số bắt buộc lên đầu; ghi chú khi không / chỉ một phần xác nhận được."""
     if not products or not criteria or not criteria.attributes:
         return products
@@ -47,21 +49,24 @@ def annotate(products: List[RawProduct], criteria: Optional[UniversalSearchCrite
     return verified + unverified
 
 
-def _age_hours(raw: Any, now: datetime) -> Optional[float]:
+def _age_hours(raw: Any, now: datetime) -> float | None:
     """updatedAt (timestamp hoặc ISO) -> số giờ đã trôi qua; None nếu không đọc được."""
     try:
-        ts = datetime.fromtimestamp(float(raw), tz=timezone.utc) if str(raw).replace(".", "").isdigit() \
+        ts = (
+            datetime.fromtimestamp(float(raw), tz=UTC)
+            if str(raw).replace(".", "").isdigit()
             else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        )
     except (ValueError, OSError):
         return None
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)  # DB lưu datetime.utcnow() không kèm múi giờ
+        ts = ts.replace(tzinfo=UTC)  # DB lưu datetime.utcnow() không kèm múi giờ
     return (now - ts).total_seconds() / 3600
 
 
-def freshness_note(products: List[RawProduct]) -> Optional[str]:
+def freshness_note(products: list[RawProduct]) -> str | None:
     """Ghi chú độ mới nếu dữ liệu lấy từ cache / kho lưu (có updatedAt) và đã cũ hơn 1 giờ."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ages = [a for a in (_age_hours(p.get("updatedAt"), now) for p in products if p.get("updatedAt")) if a is not None]
     if not ages:
         return None
@@ -69,4 +74,6 @@ def freshness_note(products: List[RawProduct]) -> Optional[str]:
     if oldest < STALE_AFTER_HOURS:
         return None
     age_text = f"{oldest:.0f} giờ" if oldest < SHOW_DAYS_AFTER_HOURS else f"{oldest / 24:.0f} ngày"
-    return f"Dữ liệu giá cũ nhất trong danh sách được cập nhật cách đây khoảng {age_text}; giá thực tế có thể đã thay đổi."
+    return (
+        f"Dữ liệu giá cũ nhất trong danh sách được cập nhật cách đây khoảng {age_text}; giá thực tế có thể đã thay đổi."
+    )

@@ -1,9 +1,9 @@
 import sys
-import pytest
 
 sys.path.insert(0, ".")
 
 from services.catalog.data_processor import data_processor
+
 
 def test_clean_title_removes_promotional_noise():
     """Kiểm tra Khâu 1: Làm sạch tiêu đề, loại bỏ các từ rác quảng cáo."""
@@ -16,12 +16,11 @@ def test_clean_title_removes_promotional_noise():
     assert "Bảo hành" not in clean
     assert "Apple" in clean
     assert "256GB" in clean
-    clean_asc = clean.encode('ascii', 'ignore').decode()
+    clean_asc = clean.encode("ascii", "ignore").decode()
     print(f"\n[Title Cleaning]: Clean Title -> {clean_asc}")
 
 
 def test_normalize_price_and_discount():
-
     """Kiểm tra Khâu 2: Chuẩn hóa giá tiền và tính toán phần trăm giảm giá chuẩn."""
     # Trường hợp 1: Giá gốc bằng 0 hoặc thấp hơn giá bán do web lỗi
     curr, orig, disc = data_processor.normalize_price_and_discount(19490000, 0)
@@ -41,6 +40,7 @@ def test_normalize_price_and_discount():
     assert orig3 == 19990000.0
     assert disc3 == 20
 
+
 def test_clean_url_and_image():
     """Kiểm tra Khâu 3: Cắt bỏ query params rác và bù protocol https cho ảnh."""
     raw_url = "https://tiki.vn/dien-thoai-iphone-15-p12345.html?spid=67890&utm_source=google&utm_campaign=sale"
@@ -52,6 +52,7 @@ def test_clean_url_and_image():
     assert "spid" not in clean_url
     assert clean_url == "https://tiki.vn/dien-thoai-iphone-15-p12345.html"
     assert clean_img.startswith("https://")
+
 
 def test_structure_specs():
     """Kiểm tra Khâu 4: Cấu trúc hóa thông số kỹ thuật thành dictionary key-value."""
@@ -69,8 +70,8 @@ def test_structure_specs():
     assert "256GB" in specs["Bộ nhớ / Ổ cứng"]
     print(f"\n[Structured Specs]: {len(specs)} attributes parsed successfully")
 
-def test_full_pipeline_process_product_list():
 
+def test_full_pipeline_process_product_list():
     """Kiểm tra chạy toàn bộ pipeline danh sách sản phẩm và chống trùng lặp."""
     raw_products = [
         {
@@ -82,24 +83,18 @@ def test_full_pipeline_process_product_list():
             "reviewsCount": "120 đánh giá",
             "brand": "Asus",
             "image": "//cdn.tgdd.vn/laptop.jpg",
-            "externalUrl": "https://thegioididong.com/laptop/asus?utm_source=fb"
+            "externalUrl": "https://thegioididong.com/laptop/asus?utm_source=fb",
         },
-
         # Bản ghi trùng lặp
         {
             "id": "1-duplicate",
             "name": "[Chính hãng] Laptop Asus Vivobook 15 i5 16GB RAM 512GB SSD",
             "currentPrice": "15.490.000₫",
             "originalPrice": "18.490.000₫",
-            "externalUrl": "https://thegioididong.com/laptop/asus?utm_source=google"
+            "externalUrl": "https://thegioididong.com/laptop/asus?utm_source=google",
         },
         # Bản ghi lỗi giá <= 0
-        {
-            "id": "2",
-            "name": "Sản phẩm lỗi giá",
-            "currentPrice": 0,
-            "originalPrice": 0
-        }
+        {"id": "2", "name": "Sản phẩm lỗi giá", "currentPrice": 0, "originalPrice": 0},
     ]
 
     cleaned_list = data_processor.process_product_list(raw_products)
@@ -114,6 +109,7 @@ def test_full_pipeline_process_product_list():
     assert item["image"].startswith("https://")
     assert "utm_source" not in item["externalUrl"]
     assert item["brand"] == "Asus"
+
 
 if __name__ == "__main__":
     print("=== TEST DATA CLEANING & NORMALIZATION PIPELINE ===")

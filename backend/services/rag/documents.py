@@ -1,11 +1,11 @@
 import json
 import time
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from services.catalog.categories import categorize
 
-Product = Dict[str, Any]
+Product = dict[str, Any]
 
 _GENERIC_WARRANTY = "Theo chính sách gian hàng"
 _MAX_SPECS_CHARS = 1500
@@ -31,7 +31,7 @@ def build_document(p: Product) -> str:
     return "\n".join(parts)
 
 
-def build_metadata(pid: str, p: Product, updated_at: Optional[int] = None) -> Dict[str, Any]:
+def build_metadata(pid: str, p: Product, updated_at: int | None = None) -> dict[str, Any]:
     """Metadata để lọc (chỉ kiểu nguyên thủy) + raw_json để dựng lại sản phẩm khi truy xuất."""
     p = {**p, "category": categorize(p)}
     price = float(p.get("currentPrice") or 0)
@@ -63,12 +63,12 @@ def product_id(p: Product, taken: set) -> str:
     return pid
 
 
-def product_from_metadata(meta: Dict[str, Any]) -> Product:
+def product_from_metadata(meta: dict[str, Any]) -> Product:
     try:
         product = json.loads(meta["raw_json"])
     except (KeyError, TypeError, ValueError):
         product = dict(meta)
     product["category"] = meta.get("category", product.get("category"))
     if not product.get("updatedAt") and meta.get("updated_at"):
-        product["updatedAt"] = datetime.fromtimestamp(meta["updated_at"], tz=timezone.utc).isoformat()
+        product["updatedAt"] = datetime.fromtimestamp(meta["updated_at"], tz=UTC).isoformat()
     return product

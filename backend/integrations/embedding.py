@@ -1,9 +1,9 @@
 """Embedding đa ngôn ngữ qua API (mặc định BAAI bge-m3 trên OpenRouter, 1024 chiều)."""
+
 import logging
 import math
 import time
 from collections import OrderedDict
-from typing import List, Optional
 
 import httpx
 
@@ -31,7 +31,7 @@ class APIEmbeddings:
         self.timeout = timeout
         self.query_timeout = query_timeout
         self.batch_size = batch_size
-        self._query_cache: "OrderedDict[str, List[float]]" = OrderedDict()
+        self._query_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._query_cache_size = query_cache_size
         self._cooldown_until = 0.0
 
@@ -39,8 +39,8 @@ class APIEmbeddings:
     def available(self) -> bool:
         return bool(self.api_key) and time.time() >= self._cooldown_until
 
-    def _post(self, texts: List[str], timeout: float) -> List[List[float]]:
-        last_err: Optional[Exception] = None
+    def _post(self, texts: list[str], timeout: float) -> list[list[float]]:
+        last_err: Exception | None = None
         for attempt in range(2):
             try:
                 resp = httpx.post(
@@ -65,15 +65,15 @@ class APIEmbeddings:
         self._cooldown_until = time.time() + 60
         raise EmbeddingError(f"Không gọi được embedding API ({self.model}): {last_err}")
 
-    def embed_documents(self, texts: List[str], timeout: Optional[float] = None) -> List[List[float]]:
+    def embed_documents(self, texts: list[str], timeout: float | None = None) -> list[list[float]]:
         if not self.api_key:
             raise EmbeddingError("Chưa cấu hình API key cho embedding")
-        vectors: List[List[float]] = []
+        vectors: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
-            vectors.extend(self._post(texts[i:i + self.batch_size], timeout or self.timeout))
+            vectors.extend(self._post(texts[i : i + self.batch_size], timeout or self.timeout))
         return vectors
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         key = text.strip().lower()
         if key in self._query_cache:
             self._query_cache.move_to_end(key)
@@ -87,18 +87,19 @@ class APIEmbeddings:
         return vec
 
 
-def _l2_normalize(vec: List[float]) -> List[float]:
+def _l2_normalize(vec: list[float]) -> list[float]:
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     return [x / norm for x in vec]
 
 
-def cosine_distance(a: List[float], b: List[float]) -> float:
+def cosine_distance(a: list[float], b: list[float]) -> float:
     """Khoảng cách cosine cho 2 vector đã chuẩn hóa (khớp `hnsw:space = cosine` của ChromaDB)."""
-    return 1.0 - sum(x * y for x, y in zip(a, b))
+    return 1.0 - sum(x * y for x, y in zip(a, b, strict=False))
 
 
 def build_default_embeddings() -> APIEmbeddings:
     from shared.config import settings
+
     return APIEmbeddings(
         api_key=settings.EMBEDDING_API_KEY or settings.OPENROUTER_API_KEY,
         base_url=settings.EMBEDDING_BASE_URL or settings.OPENROUTER_BASE_URL,

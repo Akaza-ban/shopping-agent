@@ -4,7 +4,8 @@ build_context(state) trả về dict điền vào ADVISOR_USER_PROMPT_TEMPLATE:
 user_query, scope_note, criteria_summary, chat_history_context, products_context, search_notes_context
 (+ searched, relaxed_search, total_found cho câu trả lời dựng sẵn khi LLM lỗi).
 """
-from typing import Any, Dict, List, Optional
+
+from typing import Any
 
 from integrations.platforms import display_names
 from memory.session_manager import session_memory
@@ -27,7 +28,9 @@ def format_specs_summary(specs: Any) -> str:
     if not specs:
         return DEFAULT_SPECS
     if isinstance(specs, dict):
-        ordered_keys = [k for k in PREFERRED_SPEC_ROWS if specs.get(k)] + [k for k in specs if k not in PREFERRED_SPEC_ROWS]
+        ordered_keys = [k for k in PREFERRED_SPEC_ROWS if specs.get(k)] + [
+            k for k in specs if k not in PREFERRED_SPEC_ROWS
+        ]
         items = []
         for k in ordered_keys:
             v = specs.get(k)
@@ -57,8 +60,9 @@ def format_product(idx: int, p: ProductItemModel) -> str:
     )
 
 
-def format_products(products: List[ProductItemModel], max_items: int = MAX_PRODUCTS_IN_PROMPT,
-                    searched: bool = False) -> str:
+def format_products(
+    products: list[ProductItemModel], max_items: int = MAX_PRODUCTS_IN_PROMPT, searched: bool = False
+) -> str:
     """Khối sản phẩm; không có sản phẩm thì nói rõ là đã quét mà không thấy, hay lượt này không quét."""
     if not products:
         if searched:
@@ -71,7 +75,7 @@ def format_products(products: List[ProductItemModel], max_items: int = MAX_PRODU
     return "\n\n".join(format_product(i, p) for i, p in enumerate(products[:max_items], 1))
 
 
-def format_criteria(criteria: Optional[UniversalSearchCriteria]) -> str:
+def format_criteria(criteria: UniversalSearchCriteria | None) -> str:
     """Ràng buộc của người dùng (ngành hàng, hãng, ngân sách, mục đích)."""
     if not criteria:
         return ""
@@ -90,7 +94,7 @@ def format_criteria(criteria: Optional[UniversalSearchCriteria]) -> str:
     return f"Yêu cầu bổ sung của khách hàng: {'; '.join(parts)}" if parts else ""
 
 
-def scope_note(intent: Optional[str]) -> str:
+def scope_note(intent: str | None) -> str:
     """Kết luận phạm vi của bộ phân loại: Advisor không tự phán lại (dễ từ chối nhầm câu hỏi mua sắm ngắn, mơ hồ)."""
     if intent == "out_of_scope":
         return "Bộ phân loại đã xác định: câu hỏi NGOÀI phạm vi mua sắm -> áp dụng Trường hợp 4."
@@ -116,7 +120,7 @@ def _search_notes(state: AgentState) -> str:
     return "\n".join(parts)
 
 
-def build_context(state: AgentState) -> Dict[str, str]:
+def build_context(state: AgentState) -> dict[str, str]:
     """Toàn bộ ngữ cảnh đầu vào của Advisor cho lượt này."""
     searched = state.intent in SEARCH_INTENTS
     products = state.found_products
@@ -128,10 +132,16 @@ def build_context(state: AgentState) -> Dict[str, str]:
 
     products_context = format_products(products, searched=searched)
     if products and products is not state.found_products:
-        products_context = ("Câu hỏi này nói tiếp về các sản phẩm ĐÃ ĐỀ XUẤT ở lượt trước (dưới đây): "
-                            "trả lời dựa trên đúng các sản phẩm này.\n\n" + products_context)
+        products_context = (
+            "Câu hỏi này nói tiếp về các sản phẩm ĐÃ ĐỀ XUẤT ở lượt trước (dưới đây): "
+            "trả lời dựa trên đúng các sản phẩm này.\n\n" + products_context
+        )
 
-    history = session_memory.format_chat_history_for_prompt(state.session_id, max_turns=HISTORY_TURNS) if state.session_id else ""
+    history = (
+        session_memory.format_chat_history_for_prompt(state.session_id, max_turns=HISTORY_TURNS)
+        if state.session_id
+        else ""
+    )
     return {
         "user_query": state.user_query,
         "scope_note": scope_note(state.intent),

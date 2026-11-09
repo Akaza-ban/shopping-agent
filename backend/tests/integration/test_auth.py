@@ -5,19 +5,25 @@ Kiểm thử đăng ký / đăng nhập và phân quyền (chạy offline với 
 - API riêng tư yêu cầu token; hội thoại và theo dõi giá tách biệt giữa các người dùng; quyền quản trị.
 - Đồng bộ dữ liệu cá nhân theo tài khoản.
 """
+
 import asyncio
 import sys
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.connection import Base
 from database.repositories import (
-    user_repository, alert_repository, chat_repository, product_repository, price_check_repository, feedback_repository,
+    alert_repository,
+    chat_repository,
+    feedback_repository,
+    price_check_repository,
+    product_repository,
+    user_repository,
 )
-from services.auth.service import login_throttle, validate_password, hash_password, verify_password
+from services.auth.service import hash_password, login_throttle, validate_password, verify_password
 from shared.config import settings
 
 if sys.platform == "win32":
@@ -31,18 +37,26 @@ def client(tmp_path, monkeypatch):
     async def setup():
         async with engine.begin() as conn:
             from database import models  # noqa: F401
+
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
 
     asyncio.run(setup())
     factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    for repo in (user_repository, alert_repository, chat_repository, product_repository, price_check_repository,
-                 feedback_repository):
+    for repo in (
+        user_repository,
+        alert_repository,
+        chat_repository,
+        product_repository,
+        price_check_repository,
+        feedback_repository,
+    ):
         monkeypatch.setattr(repo, "session_factory", factory)
     monkeypatch.setattr(settings, "ADMIN_EMAILS", "admin@shop.vn")
     login_throttle._failures.clear()
 
     from src.main import app
+
     yield TestClient(app)  # không dùng "with" -> không chạy lifespan (làm ấm kho, theo dõi giá)
     login_throttle._failures.clear()
 
@@ -104,9 +118,15 @@ def test_wrong_password_same_message_and_lockout(client):
 def test_change_password_revokes_other_sessions(client):
     t1 = register(client).json()["token"]
     t2 = client.post("/api/auth/login", json={"email": "an@shop.vn", "password": "matkhau123"}).json()["token"]
-    bad = client.post("/api/auth/change-password", headers=auth(t1), json={"current_password": "x", "new_password": "moi12345a"})
+    bad = client.post(
+        "/api/auth/change-password", headers=auth(t1), json={"current_password": "x", "new_password": "moi12345a"}
+    )
     assert bad.status_code == 400
-    ok = client.post("/api/auth/change-password", headers=auth(t1), json={"current_password": "matkhau123", "new_password": "moi12345a"})
+    ok = client.post(
+        "/api/auth/change-password",
+        headers=auth(t1),
+        json={"current_password": "matkhau123", "new_password": "moi12345a"},
+    )
     assert ok.status_code == 200
     assert client.get("/api/auth/me", headers=auth(t1)).status_code == 200  # phiên hiện tại giữ nguyên
     assert client.get("/api/auth/me", headers=auth(t2)).status_code == 401  # thiết bị khác bị đăng xuất
@@ -115,8 +135,13 @@ def test_change_password_revokes_other_sessions(client):
 
 # ---------------------------------------------------------------- phân quyền
 def test_private_apis_require_login(client):
-    for method, path in [("get", "/api/alerts"), ("post", "/api/chat/compare"), ("get", "/api/chat/history/x"),
-                         ("get", "/api/products/search?q=laptop"), ("get", "/api/crawler/status")]:
+    for method, path in [
+        ("get", "/api/alerts"),
+        ("post", "/api/chat/compare"),
+        ("get", "/api/chat/history/x"),
+        ("get", "/api/products/search?q=laptop"),
+        ("get", "/api/crawler/status"),
+    ]:
         assert getattr(client, method)(path).status_code == 401, path
 
 
@@ -139,6 +164,73 @@ def test_conversations_are_private(client):
     assert client.delete("/api/chat/history/chat-cua-a", headers=auth(b)).status_code == 403
 
 
+def test_alert_rejects_link_of_other_host(client, monkeypatch):
+    # Link không thuộc sàn đã chọn -> 400, server không gọi tới host đó
+    from jobs.price_watcher import price_watcher_service
+
+    called = []
+
+    async def live_price(product):
+        called.append(product)
+        return {"currentPrice": 21_000_000}
+
+    monkeypatch.setattr(price_watcher_service, "fetch_price", live_price)
+    token = register(client).json()["token"]
+    for url in ("http://127.0.0.1:8000/admin", "https://trang-gia.example/laptop", "http://169.254.169.254/latest"):
+        product = {
+            "id": "tgdd-new-1",
+            "name": "Laptop",
+            "platform": "tgdd",
+            "currentPrice": 20_000_000,
+            "externalUrl": url,
+        }
+        resp = client.post("/api/alerts", headers=auth(token), json={"product": product, "target_price": 18_000_000})
+        assert resp.status_code == 400 and "không thuộc sàn" in resp.json()["detail"]
+    assert called == []
+
+
+def test_alert_cannot_overwrite_stored_product(client, monkeypatch):
+    # Sản phẩm đã có trong kho: tên / link client gửi bị bỏ qua, kho giữ nguyên dữ liệu thật
+    from jobs.price_watcher import price_watcher_service
+
+    real_url = "https://www.thegioididong.com/laptop/that-1"
+    asyncio.run(
+        product_repository.upsert_products(
+            [
+                {
+                    "id": "tgdd-real-1",
+                    "name": "Laptop thật",
+                    "platform": "tgdd",
+                    "platformName": "TGDĐ",
+                    "currentPrice": 21_000_000,
+                    "externalUrl": real_url,
+                }
+            ]
+        )
+    )
+    seen = []
+
+    async def live_price(product):
+        seen.append(product["externalUrl"])
+        return {"currentPrice": 21_000_000, "originalPrice": 22_000_000}
+
+    monkeypatch.setattr(price_watcher_service, "fetch_price", live_price)
+    token = register(client).json()["token"]
+    fake = {
+        "id": "tgdd-real-1",
+        "name": "Hàng giả",
+        "platform": "tgdd",
+        "currentPrice": 1,
+        "externalUrl": "https://www.thegioididong.com/laptop/link-gia",
+    }
+    created = client.post("/api/alerts", headers=auth(token), json={"product": fake, "target_price": 18_000_000})
+    assert created.status_code == 200
+    assert created.json()["productName"] == "Laptop thật" and created.json()["productUrl"] == real_url
+    assert seen == [real_url]
+    stored = asyncio.run(product_repository.get_product_by_id("tgdd-real-1"))
+    assert stored["name"] == "Laptop thật" and stored["externalUrl"] == real_url
+
+
 def test_price_alerts_are_private(client, monkeypatch):
     from jobs.price_watcher import price_watcher_service
 
@@ -148,8 +240,14 @@ def test_price_alerts_are_private(client, monkeypatch):
     monkeypatch.setattr(price_watcher_service, "fetch_price", live_price)
     a = register(client).json()["token"]
     b = register(client, email="binh@shop.vn", name="Trần Bình").json()["token"]
-    product = {"id": "tgdd-test-1", "name": "Laptop thử nghiệm", "platform": "tgdd", "platformName": "TGDĐ",
-               "currentPrice": 20_000_000, "externalUrl": "https://example.com/p"}
+    product = {
+        "id": "tgdd-test-1",
+        "name": "Laptop thử nghiệm",
+        "platform": "tgdd",
+        "platformName": "TGDĐ",
+        "currentPrice": 20_000_000,
+        "externalUrl": "https://www.thegioididong.com/laptop/test-1",
+    }
     created = client.post("/api/alerts", headers=auth(a), json={"product": product, "target_price": 18_000_000})
     assert created.status_code == 200 and created.json()["userEmail"] == "an@shop.vn"
     assert created.json()["initialPrice"] == 21_000_000
@@ -185,17 +283,31 @@ def test_feedback_reaches_admin(client):
     user = register(client).json()["token"]
     admin = register(client, email="admin@shop.vn", name="Quản trị").json()["token"]
 
-    sent = client.post("/api/feedback", headers=auth(user), json={
-        "kind": "support", "topic": "Sai giá / sai thông tin", "content": "  Giá máy giặt Aqua bị sai  ", "contact": "0901234567"})
+    sent = client.post(
+        "/api/feedback",
+        headers=auth(user),
+        json={
+            "kind": "support",
+            "topic": "Sai giá / sai thông tin",
+            "content": "  Giá máy giặt Aqua bị sai  ",
+            "contact": "0901234567",
+        },
+    )
     assert sent.status_code == 201
     item = sent.json()
     assert item["status"] == "new" and item["content"] == "Giá máy giặt Aqua bị sai"
     assert item["userEmail"] == "an@shop.vn" and item["userName"] == "Nguyễn An"
-    client.post("/api/feedback", headers=auth(user), json={"kind": "feedback", "topic": "Giao diện", "content": "Thêm chế độ tối"})
+    client.post(
+        "/api/feedback",
+        headers=auth(user),
+        json={"kind": "feedback", "topic": "Giao diện", "content": "Thêm chế độ tối"},
+    )
 
     # Người dùng thường không xem / sửa được hộp thư của admin, chỉ xem yêu cầu của mình
     assert client.get("/api/feedback", headers=auth(user)).status_code == 403
-    assert client.patch(f"/api/feedback/{item['id']}", headers=auth(user), json={"status": "resolved"}).status_code == 403
+    assert (
+        client.patch(f"/api/feedback/{item['id']}", headers=auth(user), json={"status": "resolved"}).status_code == 403
+    )
     assert len(client.get("/api/feedback/mine", headers=auth(user)).json()) == 2
     assert client.get("/api/feedback/mine", headers=auth(admin)).json() == []
 
@@ -204,28 +316,42 @@ def test_feedback_reaches_admin(client):
     assert [i["kind"] for i in inbox["items"]] == ["feedback", "support"]  # mới nhất trước
     assert len(client.get("/api/feedback?kind=support", headers=auth(admin)).json()["items"]) == 1
 
-    done = client.patch(f"/api/feedback/{item['id']}", headers=auth(admin),
-                        json={"status": "resolved", "admin_note": "Đã báo đội dữ liệu"}).json()
+    done = client.patch(
+        f"/api/feedback/{item['id']}",
+        headers=auth(admin),
+        json={"status": "resolved", "admin_note": "Đã báo đội dữ liệu"},
+    ).json()
     assert done["status"] == "resolved" and done["adminNote"] == "Đã báo đội dữ liệu"
-    assert client.get("/api/feedback", headers=auth(admin)).json()["counts"] == {"new": 1, "in_progress": 0, "resolved": 1}
-    assert client.patch("/api/feedback/fb-khong-co", headers=auth(admin), json={"status": "resolved"}).status_code == 404
+    assert client.get("/api/feedback", headers=auth(admin)).json()["counts"] == {
+        "new": 1,
+        "in_progress": 0,
+        "resolved": 1,
+    }
+    assert (
+        client.patch("/api/feedback/fb-khong-co", headers=auth(admin), json={"status": "resolved"}).status_code == 404
+    )
 
 
 def test_feedback_validation_and_rate_limit(client, monkeypatch):
     user = register(client).json()["token"]
     assert client.post("/api/feedback", json={"kind": "feedback", "content": "x"}).status_code == 401
-    for bad in [{"kind": "feedback", "content": "   "}, {"kind": "khac", "content": "x"},
-                {"kind": "feedback", "content": "x" * 4001}]:
+    for bad in [
+        {"kind": "feedback", "content": "   "},
+        {"kind": "khac", "content": "x"},
+        {"kind": "feedback", "content": "x" * 4001},
+    ]:
         assert client.post("/api/feedback", headers=auth(user), json=bad).status_code == 422, bad
     admin = register(client, email="admin@shop.vn", name="Quản trị").json()["token"]
     assert client.patch("/api/feedback/x", headers=auth(admin), json={"status": "xong"}).status_code == 422
 
     import application.feedback as feedback_app
-    monkeypatch.setattr(feedback_app, "MAX_PER_HOUR", 2)
-    codes = [client.post("/api/feedback", headers=auth(user), json={"kind": "feedback", "content": f"góp ý {i}"}).status_code
-             for i in range(3)]
-    assert codes == [201, 201, 429]
 
+    monkeypatch.setattr(feedback_app, "MAX_PER_HOUR", 2)
+    codes = [
+        client.post("/api/feedback", headers=auth(user), json={"kind": "feedback", "content": f"góp ý {i}"}).status_code
+        for i in range(3)
+    ]
+    assert codes == [201, 201, 429]
 
 
 # ---------------------------------------------------------------- quên mật khẩu
@@ -239,29 +365,38 @@ def outbox(monkeypatch):
         return True
 
     import application.auth as auth_app
+
     monkeypatch.setattr(auth_app, "send_password_reset", fake_send)
     return sent
 
 
 def _token_from(link):
     from urllib.parse import parse_qs, urlparse
+
     return parse_qs(urlparse(link).query)["reset_token"][0]
 
 
 def test_forgot_password_full_flow(client, outbox):
     old = register(client).json()["token"]
-    other_device = client.post("/api/auth/login", json={"email": "an@shop.vn", "password": "matkhau123"}).json()["token"]
+    other_device = client.post("/api/auth/login", json={"email": "an@shop.vn", "password": "matkhau123"}).json()[
+        "token"
+    ]
 
     r = client.post("/api/auth/forgot-password", json={"email": "  AN@shop.vn "})
     assert r.status_code == 200 and r.json()["ok"]
     assert len(outbox) == 1 and outbox[0][0] == "an@shop.vn"
     assert outbox[0][1].startswith(settings.FRONTEND_URL.rstrip("/") + "/?reset_token=")
     token = _token_from(outbox[0][1])
-    assert client.get("/api/auth/reset-password/check", params={"token": token}).json() == {"valid": True, "email": "an@shop.vn"}
+    assert client.get("/api/auth/reset-password/check", params={"token": token}).json() == {
+        "valid": True,
+        "email": "an@shop.vn",
+    }
 
     # Mật khẩu mới yếu -> từ chối, link vẫn còn dùng được
     assert client.post("/api/auth/reset-password", json={"token": token, "new_password": "ngan"}).status_code == 422
-    assert client.post("/api/auth/reset-password", json={"token": token, "new_password": "matkhaumoi9"}).status_code == 200
+    assert (
+        client.post("/api/auth/reset-password", json={"token": token, "new_password": "matkhaumoi9"}).status_code == 200
+    )
 
     # Mọi phiên cũ bị đăng xuất; mật khẩu cũ hết tác dụng, mật khẩu mới đăng nhập được
     assert client.get("/api/auth/me", headers=auth(old)).status_code == 401
@@ -270,7 +405,10 @@ def test_forgot_password_full_flow(client, outbox):
     assert client.post("/api/auth/login", json={"email": "an@shop.vn", "password": "matkhaumoi9"}).status_code == 200
 
     # Link chỉ dùng được một lần
-    assert client.post("/api/auth/reset-password", json={"token": token, "new_password": "matkhaukhac7"}).status_code == 400
+    assert (
+        client.post("/api/auth/reset-password", json={"token": token, "new_password": "matkhaukhac7"}).status_code
+        == 400
+    )
     assert client.get("/api/auth/reset-password/check", params={"token": token}).json()["valid"] is False
 
 
@@ -292,7 +430,10 @@ def test_reset_link_rules(client, outbox, monkeypatch):
     # Link mới thay link cũ
     assert client.get("/api/auth/reset-password/check", params={"token": first}).json()["valid"] is False
     assert client.get("/api/auth/reset-password/check", params={"token": second}).json()["valid"] is True
-    assert client.post("/api/auth/reset-password", json={"token": "bịa-ra", "new_password": "matkhaumoi9"}).status_code == 400
+    assert (
+        client.post("/api/auth/reset-password", json={"token": "bịa-ra", "new_password": "matkhaumoi9"}).status_code
+        == 400
+    )
 
     # Giới hạn 3 link / giờ: lần thứ 4 vẫn trả lời như bình thường nhưng không gửi email
     client.post("/api/auth/forgot-password", json={"email": "an@shop.vn"})
@@ -301,6 +442,7 @@ def test_reset_link_rules(client, outbox, monkeypatch):
 
     # Link hết hạn
     from datetime import datetime, timedelta
+
     import database.repositories.user_repo as user_repo_module
 
     class Later(datetime):
@@ -310,11 +452,15 @@ def test_reset_link_rules(client, outbox, monkeypatch):
 
     monkeypatch.setattr(user_repo_module, "datetime", Later)
     latest = _token_from(outbox[-1][1])
-    assert client.post("/api/auth/reset-password", json={"token": latest, "new_password": "matkhaumoi9"}).status_code == 400
+    assert (
+        client.post("/api/auth/reset-password", json={"token": latest, "new_password": "matkhaumoi9"}).status_code
+        == 400
+    )
 
 
 def test_dev_mailer_logs_link_without_smtp(monkeypatch, caplog):
     import integrations.mail as mailer
+
     monkeypatch.setattr(settings, "SMTP_HOST", "")
     monkeypatch.setattr(settings, "ENVIRONMENT", "development")
     with caplog.at_level("WARNING", logger="mailer"):
@@ -324,3 +470,56 @@ def test_dev_mailer_logs_link_without_smtp(monkeypatch, caplog):
     caplog.clear()
     assert asyncio.run(mailer.send_password_reset("an@shop.vn", "An", "http://x/?reset_token=abc", 30)) is False
     assert "reset_token=abc" not in caplog.text  # môi trường thật không ghi link ra log
+
+
+def test_chat_input_limits(client):
+    token = register(client).json()["token"]
+    too_long = "a" * 2001
+    assert client.post("/api/chat", headers=auth(token), json={"message": too_long}).status_code == 422
+    assert client.post("/api/chat", headers=auth(token), json={"message": ""}).status_code == 422
+    assert client.get("/api/chat/stream", headers=auth(token), params={"message": too_long}).status_code == 422
+    product = {
+        "id": "p",
+        "name": "Laptop",
+        "platform": "tgdd",
+        "platformName": "TGDĐ",
+        "currentPrice": 1,
+        "originalPrice": 1,
+        "externalUrl": "https://www.thegioididong.com/laptop/p",
+    }
+    many = [{**product, "id": f"p{i}"} for i in range(11)]
+    assert client.post("/api/chat/compare", headers=auth(token), json={"products": many}).status_code == 422
+
+
+def test_force_refresh_is_admin_only(client, monkeypatch):
+    import application.products as products
+
+    async def fake_search(query, platform, category, limit, force_refresh):
+        return {"query": query, "platform": platform, "total": 0, "data": [], "forced": force_refresh}
+
+    monkeypatch.setattr(products, "search", fake_search)
+    user = register(client).json()["token"]
+    admin = register(client, email="admin@shop.vn", name="Quản trị").json()["token"]
+    params = {"q": "laptop", "force_refresh": "true"}
+    assert client.get("/api/products/search", headers=auth(user), params=params).status_code == 403
+    assert client.get("/api/products/search", headers=auth(user), params={"q": "laptop"}).status_code == 200
+    resp = client.get("/api/products/search", headers=auth(admin), params=params)
+    assert resp.status_code == 200 and resp.json()["forced"] is True
+
+
+def test_rate_limit_per_user(client, monkeypatch):
+    import application.link as link
+    from src.dependencies.rate_limit import LIMITERS
+
+    async def fake_parse(url):
+        return {"status": "success", "product": {"externalUrl": url}}
+
+    monkeypatch.setattr(link, "parse_link", fake_parse)
+    monkeypatch.setattr(LIMITERS["parse_link"], "limits", ((2, 60),))
+    a = register(client).json()["token"]
+    b = register(client, email="binh@shop.vn", name="Trần Bình").json()["token"]
+    body = {"url": "https://tiki.vn/p1.html"}
+    assert [client.post("/api/parse-link", headers=auth(a), json=body).status_code for _ in range(2)] == [200, 200]
+    blocked = client.post("/api/parse-link", headers=auth(a), json=body)
+    assert blocked.status_code == 429 and int(blocked.headers["Retry-After"]) >= 1
+    assert client.post("/api/parse-link", headers=auth(b), json=body).status_code == 200  # người khác đếm riêng

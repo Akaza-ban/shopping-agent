@@ -1,5 +1,7 @@
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Integer, UniqueConstraint
 from datetime import datetime
+
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+
 from ..connection import Base
 
 
@@ -26,6 +28,7 @@ class AuthTokenModel(Base):
 
 class PasswordResetModel(Base):
     """Link đặt lại mật khẩu: chỉ lưu SHA-256 của token, dùng một lần, có hạn."""
+
     __tablename__ = "password_resets"
 
     token_hash = Column(String, primary_key=True)
@@ -36,7 +39,6 @@ class PasswordResetModel(Base):
 
 
 class UserDataModel(Base):
-
     __tablename__ = "user_data"
     __table_args__ = (UniqueConstraint("user_id", "key", name="uq_user_data_key"),)
 

@@ -5,19 +5,20 @@ Kiểm thử Mức 2 của luồng tư vấn mua sắm (chạy offline, không g
 - Bảng so sánh có cấu trúc.
 - Hỏi làm rõ ngân sách & gộp câu trả lời vào tiêu chí.
 """
-import os
-from datetime import datetime, timedelta, timezone
 
-from core.state import AgentState, UniversalSearchCriteria
+import os
+from datetime import UTC, datetime, timedelta
+
 from core.flows import clarification
-from core.tools.ecom_search import EcomSearchTool
+from core.state import AgentState, UniversalSearchCriteria
 from core.tools import attribute_match
+from core.tools.ecom_search import EcomSearchTool
 from core.tools.spec_comparator import SpecComparatorTool
-from services.catalog.enricher import ProductEnricher
 from integrations.platforms.common import canonical_spec_label
 from integrations.platforms.mwg import parse_mwg_detail
 from integrations.platforms.tiki import parse_tiki_detail
-from services.catalog.ranker import rank_products, score_product, parse_volume, verifiable_attributes
+from services.catalog.enricher import ProductEnricher
+from services.catalog.ranker import parse_volume, rank_products, score_product, verifiable_attributes
 
 FIXTURES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
 
@@ -27,9 +28,17 @@ def _laptop(pid, price, gpu=None, rating=4.8, reviews="Đã bán 2,4k", detail=T
     if gpu:
         specs["GPU"] = gpu
     return {
-        "id": pid, "name": name or f"Laptop {pid}", "platform": "tgdd", "platformName": "Thế Giới Di Động",
-        "currentPrice": price, "originalPrice": price, "discountPercent": 0, "rating": rating,
-        "reviewsCount": reviews, "specs": specs, "detailFetched": detail,
+        "id": pid,
+        "name": name or f"Laptop {pid}",
+        "platform": "tgdd",
+        "platformName": "Thế Giới Di Động",
+        "currentPrice": price,
+        "originalPrice": price,
+        "discountPercent": 0,
+        "rating": rating,
+        "reviewsCount": reviews,
+        "specs": specs,
+        "detailFetched": detail,
     }
 
 
@@ -46,10 +55,15 @@ def test_parse_mwg_detail_fixture():
 
 def test_parse_tiki_detail():
     data = {
-        "specifications": [{"name": "Content", "attributes": [
-            {"name": "Card đồ họa", "value": "NVIDIA RTX 4060"},
-            {"name": "Thời gian bảo hành", "value": "24 tháng"},
-        ]}],
+        "specifications": [
+            {
+                "name": "Content",
+                "attributes": [
+                    {"name": "Card đồ họa", "value": "NVIDIA RTX 4060"},
+                    {"name": "Thời gian bảo hành", "value": "24 tháng"},
+                ],
+            }
+        ],
         "return_and_exchange_policy": "Đổi trả trong<br><b>7 ngày</b><br>nếu sp lỗi.",
     }
     detail = parse_tiki_detail(data)
@@ -67,7 +81,11 @@ def test_canonical_labels_specific_before_generic():
 def test_merge_detail_overrides_listing_specs():
     merged = ProductEnricher.merge_detail(
         {"specs": {"RAM": "RAM 16 GB"}, "warranty": "Chính hãng TGDĐ"},
-        {"specs": {"RAM": "16 GB", "GPU": "RTX 3050"}, "warranty": "Bảo hành chính hãng 2 năm", "returnPolicy": "Hư gì đổi nấy 12 tháng"},
+        {
+            "specs": {"RAM": "16 GB", "GPU": "RTX 3050"},
+            "warranty": "Bảo hành chính hãng 2 năm",
+            "returnPolicy": "Hư gì đổi nấy 12 tháng",
+        },
     )
     assert merged["specs"] == {"RAM": "16 GB", "GPU": "RTX 3050"}
     assert merged["warranty"] == "Bảo hành chính hãng 2 năm"
@@ -113,8 +131,17 @@ def test_verifiable_attributes_ignore_free_text():
 # ---------------------------------------------------------------- so sánh
 def test_comparison_table_marks_best_cells():
     products = [
-        {**_laptop("a", 25_000_000, gpu="RTX 3050"), "aiMatchScore": 70, "warranty": "1 năm", "returnPolicy": "Hư gì đổi nấy 12 tháng"},
-        {**_laptop("b", 22_000_000, gpu="RTX 3050", rating=4.2), "aiMatchScore": 60, "specs": {"RAM": "32 GB", "GPU": "RTX 3050"}},
+        {
+            **_laptop("a", 25_000_000, gpu="RTX 3050"),
+            "aiMatchScore": 70,
+            "warranty": "1 năm",
+            "returnPolicy": "Hư gì đổi nấy 12 tháng",
+        },
+        {
+            **_laptop("b", 22_000_000, gpu="RTX 3050", rating=4.2),
+            "aiMatchScore": 60,
+            "specs": {"RAM": "32 GB", "GPU": "RTX 3050"},
+        },
     ]
     table = SpecComparatorTool().build_table(products)
     rows = {r["label"]: r for r in table["rows"]}
@@ -129,8 +156,11 @@ def test_comparison_table_marks_best_cells():
 # ---------------------------------------------------------------- làm rõ & tiện ích
 def test_clarification_asked_once_and_answer_merged(monkeypatch):
     from memory.session_manager import session_memory
+
     monkeypatch.setattr(session_memory, "get_last_products", lambda sid: [])
-    broad = UniversalSearchCriteria(category="laptops", product_type="laptop gaming", target_entity="laptop", cleaned_query="laptop gaming")
+    broad = UniversalSearchCriteria(
+        category="laptops", product_type="laptop gaming", target_entity="laptop", cleaned_query="laptop gaming"
+    )
 
     s1 = AgentState(session_id="clar-1", user_query="tìm laptop gaming", intent="search_products", criteria=broad)
     clarification.maybe_ask(s1)
@@ -138,8 +168,12 @@ def test_clarification_asked_once_and_answer_merged(monkeypatch):
     assert any("Không giới hạn" in o["label"] for o in s1.clarification["options"])
 
     # Lượt trả lời: router chỉ trích được ngân sách -> gộp vào tiêu chí đang chờ
-    s2 = AgentState(session_id="clar-1", user_query="20 - 25 triệu", intent="general_advice",
-                    criteria=UniversalSearchCriteria(min_price=20_000_000, max_price=25_000_000))
+    s2 = AgentState(
+        session_id="clar-1",
+        user_query="20 - 25 triệu",
+        intent="general_advice",
+        criteria=UniversalSearchCriteria(min_price=20_000_000, max_price=25_000_000),
+    )
     clarification.apply_pending(s2)
     assert s2.intent == "search_products"
     assert s2.criteria.cleaned_query == "laptop gaming" and s2.criteria.max_price == 25_000_000
@@ -152,8 +186,14 @@ def test_clarification_asked_once_and_answer_merged(monkeypatch):
 
 def test_no_clarification_when_query_is_specific():
     for crit, q in [
-        (UniversalSearchCriteria(category="phones", product_type="iPhone 15", target_entity="điện thoại"), "tìm iphone 15"),
-        (UniversalSearchCriteria(category="laptops", target_entity="laptop", max_price=20_000_000), "laptop dưới 20 triệu"),
+        (
+            UniversalSearchCriteria(category="phones", product_type="iPhone 15", target_entity="điện thoại"),
+            "tìm iphone 15",
+        ),
+        (
+            UniversalSearchCriteria(category="laptops", target_entity="laptop", max_price=20_000_000),
+            "laptop dưới 20 triệu",
+        ),
         (UniversalSearchCriteria(category="audio", target_entity="tai nghe", brands=["Sony"]), "tai nghe sony"),
     ]:
         s = AgentState(session_id=f"spec-{q}", user_query=q, intent="search_products", criteria=crit)
@@ -170,7 +210,7 @@ def test_crawler_query_drops_budget_phrases():
 
 
 def test_freshness_note():
-    old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    old = (datetime.now(UTC) - timedelta(hours=30)).isoformat()
     note = attribute_match.freshness_note([{"updatedAt": old}])
     assert note and "30 giờ" in note
-    assert attribute_match.freshness_note([{"updatedAt": datetime.now(timezone.utc).isoformat()}]) is None
+    assert attribute_match.freshness_note([{"updatedAt": datetime.now(UTC).isoformat()}]) is None

@@ -1,5 +1,4 @@
 """API góp ý / yêu cầu hỗ trợ. Logic nằm ở application/feedback.py."""
-from typing import Optional
 
 from fastapi import APIRouter, Depends
 
@@ -23,8 +22,9 @@ async def my_feedback(user: UserModel = Depends(require_user)):
 
 
 @router.get("")
-async def list_feedback(status: Optional[FeedbackStatus] = None, kind: Optional[FeedbackKind] = None,
-                        user: UserModel = Depends(require_admin)):
+async def list_feedback(
+    status: FeedbackStatus | None = None, kind: FeedbackKind | None = None, user: UserModel = Depends(require_admin)
+):
     return await feedback.inbox(status, kind)
 
 

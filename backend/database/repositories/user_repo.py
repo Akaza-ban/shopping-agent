@@ -1,25 +1,26 @@
 import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
-from sqlalchemy import func, select, delete, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from database.repositories.serialization import iso
 from shared.exceptions import EmailAlreadyRegistered
 
 from ..connection import async_session
 from ..errors import raises_database_error
-from ..models import UserModel, AuthTokenModel, UserDataModel, PasswordResetModel
+from ..models import AuthTokenModel, PasswordResetModel, UserDataModel, UserModel
 
 
-def user_to_dict(u: UserModel) -> Dict[str, Any]:
+def user_to_dict(u: UserModel) -> dict[str, Any]:
     return {
         "id": u.id,
         "email": u.email,
         "displayName": u.display_name,
         "role": u.role,
-        "createdAt": u.created_at.isoformat() if u.created_at else None,
+        "createdAt": iso(u.created_at),
     }
 
 
@@ -43,21 +44,17 @@ class UserRepository:
             session.add(user)
             try:
                 await session.commit()
-            except IntegrityError:
+            except IntegrityError as e:
                 await session.rollback()
-                raise EmailAlreadyRegistered(email)
+                raise EmailAlreadyRegistered(email) from e
             return user
 
-    async def get_by_email(self, email: str) -> Optional[UserModel]:
+    async def get_by_email(self, email: str) -> UserModel | None:
         async with self.session_factory() as session:
             res = await session.execute(select(UserModel).where(UserModel.email == email))
             return res.scalar_one_or_none()
 
-    async def get_by_id(self, user_id: str) -> Optional[UserModel]:
-        async with self.session_factory() as session:
-            return await session.get(UserModel, user_id)
-
-    async def update_user(self, user_id: str, **fields: Any) -> Optional[UserModel]:
+    async def update_user(self, user_id: str, **fields: Any) -> UserModel | None:
         async with self.session_factory() as session:
             user = await session.get(UserModel, user_id)
             if not user:
@@ -70,11 +67,17 @@ class UserRepository:
     async def create_token(self, user_id: str, token_hash: str, ttl_seconds: int) -> None:
         async with self.session_factory() as session:
             now = datetime.utcnow()
-            session.add(AuthTokenModel(token_hash=token_hash, user_id=user_id, created_at=now,
-                                       expires_at=now + timedelta(seconds=ttl_seconds)))
+            session.add(
+                AuthTokenModel(
+                    token_hash=token_hash,
+                    user_id=user_id,
+                    created_at=now,
+                    expires_at=now + timedelta(seconds=ttl_seconds),
+                )
+            )
             await session.commit()
 
-    async def get_user_by_token(self, token_hash: str) -> Optional[UserModel]:
+    async def get_user_by_token(self, token_hash: str) -> UserModel | None:
         async with self.session_factory() as session:
             token = await session.get(AuthTokenModel, token_hash)
             if not token:
@@ -95,19 +98,31 @@ class UserRepository:
         """Link mới thay cho mọi link cũ chưa dùng (vô hiệu chứ không xóa, để vẫn đếm được số link đã gửi trong giờ)."""
         async with self.session_factory() as session:
             now = datetime.utcnow()
-            await session.execute(update(PasswordResetModel).where(
-                PasswordResetModel.user_id == user_id, PasswordResetModel.used_at.is_(None)).values(used_at=now))
-            session.add(PasswordResetModel(token_hash=token_hash, user_id=user_id, created_at=now,
-                                           expires_at=now + timedelta(seconds=ttl_seconds)))
+            await session.execute(
+                update(PasswordResetModel)
+                .where(PasswordResetModel.user_id == user_id, PasswordResetModel.used_at.is_(None))
+                .values(used_at=now)
+            )
+            session.add(
+                PasswordResetModel(
+                    token_hash=token_hash,
+                    user_id=user_id,
+                    created_at=now,
+                    expires_at=now + timedelta(seconds=ttl_seconds),
+                )
+            )
             await session.commit()
 
     async def count_password_resets(self, user_id: str, since: datetime) -> int:
         async with self.session_factory() as session:
-            stmt = select(func.count()).select_from(PasswordResetModel).where(
-                PasswordResetModel.user_id == user_id, PasswordResetModel.created_at >= since)
+            stmt = (
+                select(func.count())
+                .select_from(PasswordResetModel)
+                .where(PasswordResetModel.user_id == user_id, PasswordResetModel.created_at >= since)
+            )
             return (await session.execute(stmt)).scalar() or 0
 
-    async def user_for_password_reset(self, token_hash: str) -> Optional[UserModel]:
+    async def user_for_password_reset(self, token_hash: str) -> UserModel | None:
         """Chủ tài khoản của link còn hiệu lực (chưa dùng, chưa hết hạn); None nếu link không dùng được."""
         async with self.session_factory() as session:
             reset = await session.get(PasswordResetModel, token_hash)
@@ -115,7 +130,7 @@ class UserRepository:
                 return None
             return await session.get(UserModel, reset.user_id)
 
-    async def use_password_reset(self, token_hash: str, password_hash: str) -> Optional[UserModel]:
+    async def use_password_reset(self, token_hash: str, password_hash: str) -> UserModel | None:
         """Đổi mật khẩu bằng link (đánh dấu đã dùng ngay trong cùng giao dịch); None nếu link không dùng được."""
         async with self.session_factory() as session:
             reset = await session.get(PasswordResetModel, token_hash)
@@ -129,7 +144,7 @@ class UserRepository:
             await session.commit()
             return user
 
-    async def delete_user_tokens(self, user_id: str, keep_token_hash: Optional[str] = None) -> None:
+    async def delete_user_tokens(self, user_id: str, keep_token_hash: str | None = None) -> None:
         """Đăng xuất mọi thiết bị (giữ lại phiên hiện tại nếu truyền vào)."""
         async with self.session_factory() as session:
             stmt = delete(AuthTokenModel).where(AuthTokenModel.user_id == user_id)

@@ -1,20 +1,19 @@
-
 import logging
-import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from statistics import median
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from services.catalog.categories import categorize
-from shared.product_key import product_key
 from services.pricing.category_floors import category_floors
+from shared.product_key import product_key
 
 logger = logging.getLogger("price_guardrails")
 
 MIN_PRICE = 10_000.0
 MAX_PRICE = 500_000_000.0
 MAX_DROP_PCT = 75.0
-MAX_RISE_PCT = 200.0     
+MAX_RISE_PCT = 200.0
 CONFIRM_DROP_PCT = 30.0
 SAME_PRICE_TOLERANCE = 0.02
 
@@ -33,7 +32,7 @@ def _vnd(x: float) -> str:
     return f"{x:,.0f} đ".replace(",", ".")
 
 
-def check_price(price: Optional[float], category: Optional[str] = None) -> PriceVerdict:
+def check_price(price: float | None, category: str | None = None) -> PriceVerdict:
     """Giá tuyệt đối có hợp lý không (không cần lịch sử)."""
     if not price or price <= 0:
         return PriceVerdict(False, "missing", "Không có giá.")
@@ -43,8 +42,11 @@ def check_price(price: Optional[float], category: Optional[str] = None) -> Price
         return PriceVerdict(False, "above_ceiling", f"Giá {_vnd(price)} vượt mức tối đa {_vnd(MAX_PRICE)}.")
     floor = category_floors.get(category)
     if floor and price < floor:
-        return PriceVerdict(False, "below_category_floor",
-                            f"Giá {_vnd(price)} quá thấp cho danh mục {category} (tối thiểu {_vnd(floor)}).")
+        return PriceVerdict(
+            False,
+            "below_category_floor",
+            f"Giá {_vnd(price)} quá thấp cho danh mục {category} (tối thiểu {_vnd(floor)}).",
+        )
     return OK
 
 
@@ -52,7 +54,7 @@ def change_pct(price: float, reference: float) -> float:
     return (price - reference) / reference * 100.0
 
 
-def check_change(price: float, reference: Optional[float]) -> PriceVerdict:
+def check_change(price: float, reference: float | None) -> PriceVerdict:
     """Biến động so với mốc giá trước có bất thường không."""
     if not reference or reference <= 0:
         return OK
@@ -64,21 +66,19 @@ def check_change(price: float, reference: Optional[float]) -> PriceVerdict:
     return OK
 
 
-def check_stock(in_stock: Optional[bool]) -> PriceVerdict:
+def check_stock(in_stock: bool | None) -> PriceVerdict:
     """Sàn báo hết hàng / ngừng kinh doanh. None (sàn không ghi) coi như còn hàng."""
     if in_stock is False:
         return PriceVerdict(False, "out_of_stock", "Sản phẩm đang hết hàng trên sàn.")
     return OK
 
 
-def is_big_drop(price: float, reference: Optional[float]) -> bool:
+def is_big_drop(price: float, reference: float | None) -> bool:
     return bool(reference) and change_pct(price, reference) < -CONFIRM_DROP_PCT
 
 
-def same_price(a: Optional[float], b: Optional[float]) -> bool:
+def same_price(a: float | None, b: float | None) -> bool:
     return bool(a) and bool(b) and abs(a - b) <= SAME_PRICE_TOLERANCE * max(a, b)
-
-
 
 
 def check_against_references(price: float, references: Iterable[float]) -> PriceVerdict:
@@ -88,18 +88,19 @@ def check_against_references(price: float, references: Iterable[float]) -> Price
         return OK
     ref = median(refs)
     if change_pct(price, ref) < -MAX_DROP_PCT:
-        return PriceVerdict(False, "outlier_low",
-                            f"Giá {_vnd(price)} thấp bất thường so với {_vnd(ref)} của cùng sản phẩm.")
+        return PriceVerdict(
+            False, "outlier_low", f"Giá {_vnd(price)} thấp bất thường so với {_vnd(ref)} của cùng sản phẩm."
+        )
     return OK
 
 
 def screen_products(
-    products: List[Dict[str, Any]],
-    reference_prices: Optional[Dict[str, List[float]]] = None,
-) -> Tuple[List[Dict[str, Any]], List[Tuple[Dict[str, Any], PriceVerdict]]]:
-    
+    products: list[dict[str, Any]],
+    reference_prices: dict[str, list[float]] | None = None,
+) -> tuple[list[dict[str, Any]], list[tuple[dict[str, Any], PriceVerdict]]]:
+
     reference_prices = reference_prices or {}
-    batch: Dict[str, List[float]] = {}
+    batch: dict[str, list[float]] = {}
     for p in products:
         batch.setdefault(product_key(p.get("name", "")), []).append(float(p.get("currentPrice") or 0))
 

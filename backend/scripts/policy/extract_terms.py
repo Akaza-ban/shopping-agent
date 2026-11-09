@@ -16,8 +16,16 @@ from services.policy.extractor import extract_terms  # noqa: E402
 from shared.exceptions import LLMError  # noqa: E402
 
 DRAFT = os.path.join(BACKEND_DIR, "docs", "policy_terms_draft.json")
-TERM_KEYS = ("return_window_days", "free_return", "return_conditions", "return_shipping_fee", "refund_time",
-             "defect_exchange", "warranty_handling", "exceptions")
+TERM_KEYS = (
+    "return_window_days",
+    "free_return",
+    "return_conditions",
+    "return_shipping_fee",
+    "refund_time",
+    "defect_exchange",
+    "warranty_handling",
+    "exceptions",
+)
 
 
 async def draft():
@@ -28,8 +36,15 @@ async def draft():
         except LLMError as e:
             print(f"[{doc['platformId']}] LỖI: {e}")
             continue
-        drafts.append({"platform_id": doc["platformId"], "document_id": doc["id"], "source_url": doc["url"],
-                       "fetched_at": doc["fetchedAt"].strftime("%Y-%m-%d") if doc["fetchedAt"] else None, **terms})
+        drafts.append(
+            {
+                "platform_id": doc["platformId"],
+                "document_id": doc["id"],
+                "source_url": doc["url"],
+                "fetched_at": doc["fetchedAt"].strftime("%Y-%m-%d") if doc["fetchedAt"] else None,
+                **terms,
+            }
+        )
         warn = f" | số không thấy trong trang: {terms['unsupported_numbers']}" if terms["unsupported_numbers"] else ""
         print(f"[{doc['platformId']}] {terms['return_window_days']} ngày, trả miễn phí: {terms['free_return']}{warn}")
     os.makedirs(os.path.dirname(DRAFT), exist_ok=True)
@@ -43,8 +58,9 @@ async def apply():
         drafts = json.load(f)
     for d in drafts:
         checked = datetime.strptime(d["fetched_at"], "%Y-%m-%d") if d.get("fetched_at") else None
-        await policy_repository.upsert_terms(d["platform_id"], {k: d[k] for k in TERM_KEYS},
-                                             document_id=d.get("document_id"), last_checked=checked)
+        await policy_repository.upsert_terms(
+            d["platform_id"], {k: d[k] for k in TERM_KEYS}, document_id=d.get("document_id"), last_checked=checked
+        )
         print(f"[{d['platform_id']}] đã ghi điều khoản")
 
 

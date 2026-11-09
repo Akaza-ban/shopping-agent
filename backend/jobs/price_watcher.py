@@ -1,15 +1,15 @@
 import asyncio
-import time
 import logging
+import time
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from services.pricing import guardrails
+from database.repositories import alert_repository, price_check_repository, product_repository
 from services.catalog.categories import categorize
 from services.catalog.category_resolver import category_resolver
-from services.pricing.category_floors import category_floors
 from services.catalog.enricher import product_enricher
-from database.repositories import alert_repository, product_repository, price_check_repository
+from services.pricing import guardrails
+from services.pricing.category_floors import category_floors
 
 logger = logging.getLogger("price_watcher")
 
@@ -50,30 +50,46 @@ class PriceWatcherService:
     def stop(self):
         self.is_running = False
 
-    async def check_alerts(self, alert_ids: Optional[List[str]] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def check_alerts(
+        self, alert_ids: list[str] | None = None, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """Kiểm tra giá các yêu cầu đang theo dõi (lọc theo alert_ids / user_id); trả về danh sách yêu cầu sau khi cập nhật."""
         async with self._lock:
             watching = [
-                a for a in await self.alerts.list(status="watching", user_id=user_id)
+                a
+                for a in await self.alerts.list(status="watching", user_id=user_id)
                 if not alert_ids or a["id"] in alert_ids
             ]
             for alert in watching:
                 await self._check_one(alert)
             return await self.alerts.list(user_id=user_id)
 
-    async def _read(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    async def _read(self, alert: dict[str, Any]) -> dict[str, Any]:
         """Đọc giá hiện tại trên sàn của sản phẩm trong yêu cầu; giá không qua guardrails thì price = None."""
-        product = {"id": alert["productId"], "name": alert["productName"], "platform": alert["platform"],
-                   "externalUrl": alert["productUrl"]}
+        product = {
+            "id": alert["productId"],
+            "name": alert["productName"],
+            "platform": alert["platform"],
+            "externalUrl": alert["productUrl"],
+        }
         fresh = await self.fetch_price(product) or {}
         raw = float(fresh["currentPrice"]) if fresh.get("currentPrice") else None
-        current = {**product, "sourceCategoryPath": fresh.get("sourceCategoryPath") or product.get("sourceCategoryPath")}
+        current = {
+            **product,
+            "sourceCategoryPath": fresh.get("sourceCategoryPath") or product.get("sourceCategoryPath"),
+        }
         await category_resolver.resolve([current])
         verdict = guardrails.check_price(raw, categorize(current))
-        return {"price": raw if verdict.ok else None, "raw": raw, "original": fresh.get("originalPrice"),
-                "in_stock": fresh.get("inStock"), "verdict": verdict, "readable": bool(fresh)}
+        return {
+            "price": raw if verdict.ok else None,
+            "raw": raw,
+            "original": fresh.get("originalPrice"),
+            "in_stock": fresh.get("inStock"),
+            "verdict": verdict,
+            "readable": bool(fresh),
+        }
 
-    async def _check_one(self, alert: Dict[str, Any]) -> None:
+    async def _check_one(self, alert: dict[str, Any]) -> None:
         """Đọc giá -> áp guardrails -> ghi lịch sử giá, cập nhật cảnh báo, ghi nhật ký lần kiểm tra."""
         start = time.perf_counter()
         now = datetime.utcnow()
@@ -85,42 +101,57 @@ class PriceWatcherService:
             await self._record_price(alert, reading)
         await self._update_alert(alert, reading, outcome, note, fields, now)
         if self.checks:
-            await self.checks.add({
-                "alert_id": alert["id"],
-                "user_id": alert.get("userId"),
-                "product_name": alert["productName"],
-                "price": reading["raw"],
-                "in_stock": reading["in_stock"],
-                "outcome": outcome,
-                "note": note,
-                "latency_ms": round((time.perf_counter() - start) * 1000.0, 1),
-                "checked_at": now,
-            })
+            await self.checks.add(
+                {
+                    "alert_id": alert["id"],
+                    "user_id": alert.get("userId"),
+                    "product_name": alert["productName"],
+                    "price": reading["raw"],
+                    "in_stock": reading["in_stock"],
+                    "outcome": outcome,
+                    "note": note,
+                    "latency_ms": round((time.perf_counter() - start) * 1000.0, 1),
+                    "checked_at": now,
+                }
+            )
 
-    async def _confirm_drop(self, alert: Dict[str, Any], reading: Dict[str, Any], now: datetime):
+    async def _confirm_drop(self, alert: dict[str, Any], reading: dict[str, Any], now: datetime):
         """D. Sắp báo đạt giá mà giảm mạnh -> đọc lại ngay một lần; hai lần khớp mới chấp nhận, không thì chờ."""
         again = (await self._read(alert))["price"]
         current = reading["price"]
         if guardrails.same_price(again, current):
             return self._accept(alert, reading)
-        note = (f"Giá giảm mạnh xuống {_vnd(current)} nhưng lần đọc lại "
-                f"{'không đọc được' if again is None else 'cho ' + _vnd(again)}; chưa báo đạt giá.")
+        note = (
+            f"Giá giảm mạnh xuống {_vnd(current)} nhưng lần đọc lại "
+            f"{'không đọc được' if again is None else 'cho ' + _vnd(again)}; chưa báo đạt giá."
+        )
         return "pending", note, {"pending_price": current, "pending_at": now}
 
-    async def _record_price(self, alert: Dict[str, Any], reading: Dict[str, Any]) -> None:
+    async def _record_price(self, alert: dict[str, Any], reading: dict[str, Any]) -> None:
         """Ghi mốc lịch sử giá (upsert chỉ thêm mốc khi giá thay đổi)."""
-        await self.products.upsert_products([{
-            "id": alert["productId"],
-            "name": alert["productName"],
-            "platform": alert["platform"],
-            "platformName": alert["platformName"],
-            "currentPrice": reading["price"],
-            "originalPrice": reading["original"] or reading["price"],
-            "externalUrl": alert["productUrl"],
-        }])
+        await self.products.upsert_products(
+            [
+                {
+                    "id": alert["productId"],
+                    "name": alert["productName"],
+                    "platform": alert["platform"],
+                    "platformName": alert["platformName"],
+                    "currentPrice": reading["price"],
+                    "originalPrice": reading["original"] or reading["price"],
+                    "externalUrl": alert["productUrl"],
+                }
+            ]
+        )
 
-    async def _update_alert(self, alert: Dict[str, Any], reading: Dict[str, Any], outcome: str, note: str,
-                            fields: Dict[str, Any], now: datetime) -> None:
+    async def _update_alert(
+        self,
+        alert: dict[str, Any],
+        reading: dict[str, Any],
+        outcome: str,
+        note: str,
+        fields: dict[str, Any],
+        now: datetime,
+    ) -> None:
         update = {"last_checked_at": now, "last_note": note, **fields}
         if reading["readable"]:
             update["in_stock"] = reading["in_stock"]
@@ -131,7 +162,7 @@ class PriceWatcherService:
             logger.warning(f"[Price Guardrail] '{alert['productName']}': {note}")
         await self.alerts.update(alert["id"], **update)
 
-    def _evaluate(self, alert: Dict[str, Any], reading: Dict[str, Any]):
+    def _evaluate(self, alert: dict[str, Any], reading: dict[str, Any]):
         """Áp guardrails cho một lần đọc -> (outcome, note, fields cần cập nhật). outcome "reread" = cần đọc lại."""
         current = reading["price"]
         if not reading["readable"] or (reading["raw"] is None and reading["in_stock"] is not False):
@@ -162,7 +193,7 @@ class PriceWatcherService:
         return outcome, note, fields
 
     @staticmethod
-    def _accept(alert: Dict[str, Any], reading: Dict[str, Any]):
+    def _accept(alert: dict[str, Any], reading: dict[str, Any]):
         current = reading["price"]
         fields = {
             "last_price": current,
@@ -171,7 +202,11 @@ class PriceWatcherService:
             "pending_at": None,
         }
         if current <= alert["targetPrice"]:
-            return "triggered", f"Đã đạt giá mong muốn: {_vnd(current)} (mục tiêu {_vnd(alert['targetPrice'])}).", fields
+            return (
+                "triggered",
+                f"Đã đạt giá mong muốn: {_vnd(current)} (mục tiêu {_vnd(alert['targetPrice'])}).",
+                fields,
+            )
         return "accepted", "", fields
 
 

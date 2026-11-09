@@ -2,6 +2,7 @@
 So sánh sản phẩm khác ngành hàng (VD điện thoại với laptop): công cụ không lập bảng, không chấm "tốt nhất",
 trả về lời giải thích; cùng ngành hàng thì so sánh bình thường. Ngành hàng lấy từ bảng quy đổi danh mục.
 """
+
 import asyncio
 import sys
 
@@ -14,8 +15,18 @@ if sys.platform == "win32":
 
 
 def _product(pid, url, price, category="all"):
-    return {"id": pid, "name": pid, "platform": "tgdd", "platformName": "Thế Giới Di Động", "currentPrice": price,
-            "originalPrice": price, "aiMatchScore": 90, "rating": 4.8, "externalUrl": url, "category": category}
+    return {
+        "id": pid,
+        "name": pid,
+        "platform": "tgdd",
+        "platformName": "Thế Giới Di Động",
+        "currentPrice": price,
+        "originalPrice": price,
+        "aiMatchScore": 90,
+        "rating": 4.8,
+        "externalUrl": url,
+        "category": category,
+    }
 
 
 PHONE = _product("iphone-16", "https://www.thegioididong.com/dtdd/iphone-16", 21_990_000)
@@ -29,8 +40,11 @@ def test_mixed_categories_detection():
     assert mixed_categories([PHONE, PHONE_2]) == []
     assert mixed_categories([PHONE, CASE]) == []  # phụ kiện / chưa rõ ngành hàng không tính là khác loại
     # Tiki: ngành hàng theo mã danh mục lưu trong sản phẩm
-    tiki_laptop = {**_product("tiki-1", "https://tiki.vn/laptop-x.html", 20_000_000), "platform": "tiki",
-                   "sourceCategoryPath": "1/2/1846/8095"}
+    tiki_laptop = {
+        **_product("tiki-1", "https://tiki.vn/laptop-x.html", 20_000_000),
+        "platform": "tiki",
+        "sourceCategoryPath": "1/2/1846/8095",
+    }
     assert mixed_categories([PHONE, tiki_laptop]) == ["phones", "laptops"]
 
 
@@ -45,8 +59,11 @@ def test_tool_refuses_cross_category_comparison():
 
 
 def test_agent_passes_note_to_advisor():
-    state = AgentState(session_id="s", user_query="so sánh iPhone 16 với laptop Dell",
-                       found_products=[ProductItemModel(**PHONE), ProductItemModel(**LAPTOP)])
+    state = AgentState(
+        session_id="s",
+        user_query="so sánh iPhone 16 với laptop Dell",
+        found_products=[ProductItemModel(**PHONE), ProductItemModel(**LAPTOP)],
+    )
     state = asyncio.run(ComparisonAgent().compare(state))
     assert state.comparison_table is None and state.comparison_markdown == ""
     assert any("KHÁC LOẠI" in n for n in state.search_notes)
@@ -55,6 +72,7 @@ def test_agent_passes_note_to_advisor():
 def test_router_null_fields_do_not_break_criteria():
     """LLM router trả null cho trường không áp dụng -> dùng mặc định, không rơi xuống đường dự phòng bằng từ khóa."""
     from core.state import UniversalSearchCriteria
+
     c = UniversalSearchCriteria(is_accessory=None, cleaned_query=None, attributes=None)
     assert (c.is_accessory, c.cleaned_query, c.attributes) == (False, "", {})
 
@@ -72,10 +90,24 @@ def test_same_category_but_different_platform_category_asks_llm(monkeypatch, _of
         return False
 
     monkeypatch.setattr(_offline_category_resolver, "same_kind", fake_same_kind)
-    blocked = asyncio.run(ComparisonAgent().compare(AgentState(
-        session_id="s", user_query="so sánh", found_products=[ProductItemModel(**fridge), ProductItemModel(**washer)])))
+    blocked = asyncio.run(
+        ComparisonAgent().compare(
+            AgentState(
+                session_id="s",
+                user_query="so sánh",
+                found_products=[ProductItemModel(**fridge), ProductItemModel(**washer)],
+            )
+        )
+    )
     assert blocked.comparison_table is None and asked == [["tu-lanh", "may-giat"]]
 
-    same = asyncio.run(ComparisonAgent().compare(AgentState(
-        session_id="s", user_query="so sánh", found_products=[ProductItemModel(**washer), ProductItemModel(**washer_2)])))
+    same = asyncio.run(
+        ComparisonAgent().compare(
+            AgentState(
+                session_id="s",
+                user_query="so sánh",
+                found_products=[ProductItemModel(**washer), ProductItemModel(**washer_2)],
+            )
+        )
+    )
     assert same.comparison_table is not None and len(asked) == 1  # cùng danh mục dmx:may-giat: không hỏi LLM

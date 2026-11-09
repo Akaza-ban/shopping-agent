@@ -48,6 +48,4 @@ ROUTER_SYSTEM_PROMPT = """Bạn trích xuất ý định và tiêu chí từ câ
 Mẫu JSON (không markdown, không văn bản ngoài JSON):
 {"intent": "search_products", "criteria": {"category": "home_appliances", "category_name": "Đồ gia dụng & Nhà bếp", "product_type": "chảo", "target_entity": "chảo", "is_accessory": false, "min_price": null, "max_price": null, "brands": [], "brand_tier": "thương hiệu lớn", "suggested_brands": ["Tefal", "Lock&Lock", "Elmich", "Sunhouse"], "attributes": {"coating": "chống dính"}, "usage_purpose": "nấu ăn gia đình", "priority": "brand_reputation", "target_platforms": ["all"], "cleaned_query": "chảo chống dính Tefal Lock&Lock Elmich"}, "about_previous_products": false, "extracted_link": null, "reply": null}
 Với `smalltalk`: {"intent": "smalltalk", "criteria": {}, "about_previous_products": false, "reply": "câu trả lời của bạn"}
-""".replace(
-    "{PLATFORM_HINT}", ", ".join(f'["{p.id}"] ({p.name.lower()})' for p in all_platforms())
-)
+""".replace("{PLATFORM_HINT}", ", ".join(f'["{p.id}"] ({p.name.lower()})' for p in all_platforms()))

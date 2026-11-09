@@ -1,6 +1,8 @@
-from ..state import AgentState
-from ..tools.spec_comparator import SpecComparatorTool, mixed_categories, product_category
 from services.catalog.category_resolver import category_resolver
+
+from ..state import AgentState
+from ..tools.spec_comparator import SpecComparatorTool, mixed_categories
+
 
 class ComparisonAgent:
     """Agent chuyên so sánh giá cả, thông số kỹ thuật, bảo hành và đổi trả đa sàn."""
@@ -25,7 +27,8 @@ class ComparisonAgent:
         state.comparison_markdown = comparison_res.get("markdown", "")
         if comparison_res.get("status") == "mixed_categories":
             state.search_notes.append(
-                "Các sản phẩm KHÁC LOẠI (" + (", ".join(comparison_res.get("categories", [])) or "theo tên sản phẩm")
+                "Các sản phẩm KHÁC LOẠI ("
+                + (", ".join(comparison_res.get("categories", [])) or "theo tên sản phẩm")
                 + "): không lập bảng so sánh, "
                 "không kết luận sản phẩm nào tốt hơn."
             )

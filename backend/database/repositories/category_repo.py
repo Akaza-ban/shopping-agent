@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from sqlalchemy import select
 
@@ -16,13 +16,21 @@ class CategoryMappingRepository:
     def __init__(self, session_factory=async_session):
         self.session_factory = session_factory
 
-    async def all(self) -> List[Dict[str, Any]]:
+    async def all(self) -> list[dict[str, Any]]:
         async with self.session_factory() as session:
             rows = (await session.scalars(select(CategoryMappingModel))).all()
-            return [{"source_key": r.source_key, "category": r.category, "is_accessory": bool(r.is_accessory),
-                     "noun": r.product_noun or "", "decided_by": r.decided_by} for r in rows]
+            return [
+                {
+                    "source_key": r.source_key,
+                    "category": r.category,
+                    "is_accessory": bool(r.is_accessory),
+                    "noun": r.product_noun or "",
+                    "decided_by": r.decided_by,
+                }
+                for r in rows
+            ]
 
-    async def save(self, rows: List[Dict[str, Any]]) -> None:
+    async def save(self, rows: list[dict[str, Any]]) -> None:
         """Ghi kết quả quy đổi của LLM; dòng đã sửa tay (decided_by = manual) giữ nguyên."""
         async with self.session_factory() as session:
             for r in rows:

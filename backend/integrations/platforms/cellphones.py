@@ -1,15 +1,20 @@
 """CellphoneS: API tìm kiếm công khai (GraphQL advanced_search mà trang tìm kiếm của sàn dùng); trang chi tiết có JSON-LD."""
+
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
-from shared.categories import category_path
 from integrations.platforms.base import JsonLdDetailAdapter
 from integrations.platforms.common import (
-    BROWSER_HEADERS, broadened_note, first_hit, query_candidates, within_price,
+    BROWSER_HEADERS,
+    broadened_note,
+    first_hit,
+    query_candidates,
+    within_price,
 )
+from shared.categories import category_path
 
 logger = logging.getLogger("platforms.cellphones")
 
@@ -21,11 +26,11 @@ CPS_SEARCH_QUERY = """query advanced_search { advanced_search(user_query: { term
 
 
 def _strip_marketing(name: str) -> str:
-    """"iPhone 16 128GB | Chính hãng VN/A" -> "iPhone 16 128GB"."""
+    """ "iPhone 16 128GB | Chính hãng VN/A" -> "iPhone 16 128GB"."""
     return str(name or "").split(" | ")[0].strip()
 
 
-def parse_cellphones_search(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def parse_cellphones_search(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Sản phẩm trong kết quả GraphQL advanced_search của CellphoneS."""
     result = ((data or {}).get("data") or {}).get("advanced_search") or {}
     items = []
@@ -42,17 +47,19 @@ def parse_cellphones_search(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         used = "Hàng cũ" in names or " cũ" in name.lower()
         if used and "cũ" not in name.lower():
             name += " (cũ)"  # máy cũ chỉ ghi "cũ" ở danh mục / đường dẫn
-        items.append({
-            "id": f"cps-{it.get('product_id')}",
-            "name": name,
-            "href": f"{CPS_DOMAIN}/{url_path}",
-            "currentPrice": current,
-            "originalPrice": price or current,
-            "discountPercent": round((1 - current / price) * 100) if price > current else 0,
-            "image": (CPS_IMAGE_BASE + thumb) if thumb.startswith("/") else thumb,
-            "categoryPath": category_path("cellphones", names),
-            "used": used,
-        })
+        items.append(
+            {
+                "id": f"cps-{it.get('product_id')}",
+                "name": name,
+                "href": f"{CPS_DOMAIN}/{url_path}",
+                "currentPrice": current,
+                "originalPrice": price or current,
+                "discountPercent": round((1 - current / price) * 100) if price > current else 0,
+                "image": (CPS_IMAGE_BASE + thumb) if thumb.startswith("/") else thumb,
+                "categoryPath": category_path("cellphones", names),
+                "used": used,
+            }
+        )
     return items
 
 
@@ -85,15 +92,17 @@ class CellphonesAdapter(JsonLdDetailAdapter):
         return [self._to_product(it, criteria) for it in kept][:limit]
 
     @staticmethod
-    async def _fetch_search(client, query: str) -> List[Dict[str, Any]]:
+    async def _fetch_search(client, query: str) -> list[dict[str, Any]]:
         try:
-            resp = await client.post(CPS_SEARCH_URL, json={"query": CPS_SEARCH_QUERY % json.dumps(query, ensure_ascii=False)})
+            resp = await client.post(
+                CPS_SEARCH_URL, json={"query": CPS_SEARCH_QUERY % json.dumps(query, ensure_ascii=False)}
+            )
             return parse_cellphones_search(resp.json()) if resp.status_code == 200 else []
         except (httpx.HTTPError, ValueError) as e:
             logger.warning(f"Lỗi kết nối CellphoneS cho '{query}': {e}")
             return []
 
-    def _to_product(self, it: Dict[str, Any], criteria) -> Dict[str, Any]:
+    def _to_product(self, it: dict[str, Any], criteria) -> dict[str, Any]:
         return {
             **self.product_base(criteria),
             "id": it["id"],

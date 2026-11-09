@@ -1,5 +1,6 @@
 """Đọc thông tin sản phẩm từ link người dùng dán vào (API riêng, ngoài khung chat)."""
-from typing import Any, Dict
+
+from typing import Any
 
 from core.tools.url_extractor import UrlExtractorTool
 from shared.exceptions import CrawlerError, InvalidInputError
@@ -7,7 +8,7 @@ from shared.exceptions import CrawlerError, InvalidInputError
 extractor = UrlExtractorTool()
 
 
-async def parse_link(url: str) -> Dict[str, Any]:
+async def parse_link(url: str) -> dict[str, Any]:
     url = (url or "").strip()
     if not url:
         raise InvalidInputError("Vui lòng cung cấp đường dẫn URL hợp lệ.")
