@@ -6,7 +6,9 @@ Trường dùng camelCase vì giao diện đang dùng tên này.
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from shared.unverified import PLACEHOLDER_DELIVERY, PLACEHOLDER_REVIEWS, PLACEHOLDER_WARRANTIES, known
 
 
 class ProductOut(BaseModel):
@@ -22,14 +24,14 @@ class ProductOut(BaseModel):
     originalPrice: float
     currentPrice: float
     discountPercent: int = 0
-    rating: float = 4.8
-    reviewsCount: str = "100+ đánh giá"
+    rating: float = 0.0  # 0 = chưa có đánh giá
+    reviewsCount: str = ""
     sku: str = ""
     image: str = ""
     specs: dict[str, Any] | str | None = ""
     aiSummary: str = ""
-    warranty: str = "Chính hãng 12 tháng"
-    deliveryTag: str | None = "Freeship"
+    warranty: str | None = None  # None = chưa rõ
+    deliveryTag: str | None = None
     selected: bool = False
     externalUrl: str = ""
     sourceCategoryPath: str | None = None
@@ -39,3 +41,19 @@ class ProductOut(BaseModel):
     detailFetched: bool = False
     matchReasons: list[str] = Field(default_factory=list)
     attributeMatch: dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown
+
+    # Sản phẩm lưu từ phiên bản cũ có thể còn giá trị điền sẵn (shared/unverified.py)
+    @field_validator("warranty", mode="before")
+    @classmethod
+    def _real_warranty(cls, v):
+        return known(v, PLACEHOLDER_WARRANTIES)
+
+    @field_validator("deliveryTag", mode="before")
+    @classmethod
+    def _real_delivery(cls, v):
+        return known(v, PLACEHOLDER_DELIVERY)
+
+    @field_validator("reviewsCount", mode="before")
+    @classmethod
+    def _real_reviews(cls, v):
+        return known(v, PLACEHOLDER_REVIEWS) or ""

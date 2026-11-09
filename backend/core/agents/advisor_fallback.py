@@ -9,7 +9,7 @@ from integrations.platforms import display_names
 from services.catalog.reviews import rating_text
 
 from ..state import ProductItemModel
-from .advisor_context import format_specs_summary
+from .advisor_context import UNKNOWN, format_specs_summary
 from .patterns import GREETING_RE, OUT_OF_SCOPE_RE
 
 
@@ -26,26 +26,31 @@ def build_fallback(context: dict[str, str], top: ProductItemModel | None, intent
     return without_products(context)
 
 
+def _seller_line(p: ProductItemModel) -> str:
+    return f"**{p.platformName}**" + (f" ({p.deliveryTag})" if p.deliveryTag else "")
+
+
 def link_review(p: ProductItemModel) -> str:
-    """Thẩm định sản phẩm người dùng dán link."""
+    """Thông tin đọc được từ link người dùng dán; chỉ nêu dữ liệu trên trang, không tự đánh giá giá rẻ hay uy tín."""
     savings = max(0, p.originalPrice - p.currentPrice)
     deal = (
-        f"Sản phẩm đang được ưu đãi giảm {p.discountPercent}%, tiết kiệm {savings:,.0f} đ so với niêm yết."
+        f"Trang đang ghi giảm {p.discountPercent}% (tiết kiệm {savings:,.0f} đ) so với giá niêm yết của chính trang này."
         if p.discountPercent > 0
-        else "Giá niêm yết chuẩn chính hãng."
+        else "Trang không ghi mức giảm giá nào so với giá niêm yết."
     )
     return (
-        f"### Thẩm định sản phẩm từ liên kết: [{p.name}]({p.externalUrl})\n\n"
-        f"- **Kênh phân phối:** **{p.platformName}** ({p.deliveryTag or 'Chính hãng'})\n"
+        f"### Thông tin sản phẩm từ liên kết: [{p.name}]({p.externalUrl})\n\n"
+        f"- **Nơi bán:** {_seller_line(p)}\n"
         f"- **Mức giá hiện tại:** **{p.currentPrice:,.0f} đ**{discount_text(p)}\n"
-        f"- **Độ uy tín & Đánh giá:** {rating_text(p.rating, p.reviewsCount)}\n"
-        f"- **Bảo hành:** {p.warranty}\n"
-        f"- **Cấu hình & Thông số cốt lõi:** {format_specs_summary(p.specs)}\n\n"
-        f"### Đánh giá chuyên môn từ ShopAI\n"
-        f"1. **Thẩm định giá bán:** Mức giá **{p.currentPrice:,.0f} đ** tại **{p.platformName}** là mức giá rất cạnh tranh. "
-        f"{deal}\n"
-        f"2. **Độ an toàn gian hàng:** Sản phẩm có nguồn gốc phân phối rõ ràng, chính sách {p.warranty}, hỗ trợ đổi trả tiêu chuẩn.\n"
-        f"3. **Lời khuyên mua sắm:** Bạn có thể bấm vào liên kết trên để xem chi tiết hoặc yêu cầu tôi so sánh sản phẩm này với các đối thủ cùng phân khúc!"
+        f"- **Đánh giá:** {rating_text(p.rating, p.reviewsCount)}\n"
+        f"- **Bảo hành:** {p.warranty or UNKNOWN}\n"
+        f"- **Đổi trả:** {p.returnPolicy or UNKNOWN}\n"
+        f"- **Cấu hình & thông số:** {format_specs_summary(p.specs)}\n\n"
+        f"### Lưu ý trước khi mua\n"
+        f"1. **Về giá:** {deal} Tôi chưa đối chiếu với giá ở nơi bán khác.\n"
+        f"2. **Về người bán:** Kiểm tra tên người bán, điều kiện bảo hành và đổi trả ngay trên trang trước khi đặt hàng"
+        f"{', vì trang chưa ghi rõ bảo hành' if not p.warranty else ''}.\n"
+        f"3. **Bước tiếp theo:** Bạn có thể nhờ tôi tìm sản phẩm này trên các sàn khác để so sánh giá."
     )
 
 
@@ -59,14 +64,14 @@ def recommendation(context: dict[str, str], p: ProductItemModel) -> str:
     return (
         f"{relaxed_intro}"
         f"### Đề xuất số 1: [{p.name}]({p.externalUrl})\n\n"
-        f"- **Nơi bán:** **{p.platformName}** ({p.deliveryTag or 'Chính hãng'})\n"
+        f"- **Nơi bán:** {_seller_line(p)}\n"
         f"- **Mức giá ưu đãi:** **{p.currentPrice:,.0f} đ**{discount_text(p)}\n"
         f"- **Đánh giá người dùng:** {rating_text(p.rating, p.reviewsCount)}\n"
         f"- **Cấu hình nổi bật:** {format_specs_summary(p.specs)}\n\n"
         f"### So sánh nhanh Top lựa chọn\n"
         f"{context['products_context']}\n\n"
         f"### Lời khuyên mua sắm từ ShopAI\n"
-        f"Mẫu **{p.name}** tại **{p.platformName}** hiện là lựa chọn cân bằng tốt nhất giữa giá cả và cấu hình. "
+        f"Mẫu **{p.name}** tại **{p.platformName}** được xếp hạng cao nhất theo tiêu chí của bạn. "
         f"Bạn có thể nhấn vào liên kết sản phẩm để xem chi tiết hoặc yêu cầu tôi so sánh chuyên sâu hơn."
     )
 

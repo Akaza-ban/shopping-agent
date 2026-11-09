@@ -23,6 +23,10 @@ BUDGET_OPTIONS = {
 }
 DEFAULT_BUDGET_OPTIONS = ["Dưới 1 triệu", "1 - 5 triệu", "5 - 15 triệu", "Trên 15 triệu"]
 SKIP_BUDGET_OPTION = "Không giới hạn ngân sách, cứ tìm giúp tôi"
+# Lựa chọn luôn có ở cuối câu hỏi làm rõ do LLM đặt (giá trị gửi lại khớp SKIP_PATTERN)
+SKIP_OPTION = "Không cần hỏi thêm, cứ tìm giúp tôi"
+# Số câu hỏi làm rõ tối đa cho một nhu cầu (mỗi lượt một câu)
+CLARIFY_MAX_QUESTIONS = 3
 
 # Người dùng bảo "cứ tìm" -> không hỏi lại ngân sách
 SKIP_PATTERN = re.compile(r"không giới hạn|bất kỳ|giá nào cũng|cứ tìm|tìm luôn|không quan trọng|bỏ qua", re.IGNORECASE)

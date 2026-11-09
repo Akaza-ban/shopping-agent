@@ -3,6 +3,8 @@
   "clarify.default_entity": "sản phẩm",
   "clarify.purpose_hint": " Nếu được, bạn cho biết thêm mục đích sử dụng chính nhé.",
   "clarify.context_hint": "Biết ngân sách giúp trợ lý lọc đúng phân khúc và xếp hạng chính xác hơn trước khi quét các sàn.",
+  "clarify.skip": "Không cần hỏi thêm, cứ tìm giúp tôi",
+  "clarify.step": "Câu hỏi {step}/{total}",
 
   "suggest.link": [
     "So sánh {name} với các đối thủ cùng phân khúc",

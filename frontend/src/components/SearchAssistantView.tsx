@@ -11,11 +11,13 @@ import {
   Table2,
   ChevronDown,
   AlertTriangle,
-  MessageSquarePlus
+  MessageSquarePlus,
+  Square,
+  RotateCcw
 } from 'lucide-react';
 import { ChatConversation, ChatMessage, ChatRequest, CitationItem, PolicyRequest, ProductItem, ReasoningStep } from '../types.ts';
 import { getPlatformName } from '../services/shoppingService.ts';
-import { API_BASE_URL, MAX_MESSAGE_CHARS, compareProducts, deleteConversation, newConversationId, streamChat } from '../services/agentApi.ts';
+import { ApiError, MAX_MESSAGE_CHARS, compareProducts, deleteConversation, newConversationId, streamChat } from '../services/agentApi.ts';
 import { usePersistentState } from '../hooks/usePersistentState.ts';
 import { useSyncedState } from '../hooks/useSyncedState.ts';
 import { ComparisonTable } from './ComparisonTable.tsx';
@@ -64,16 +66,28 @@ const makeTitle = (text: string) => {
   return clean.length > MAX_TITLE_LENGTH ? `${clean.slice(0, MAX_TITLE_LENGTH - 1)}…` : clean;
 };
 
-const errorMessage = (err: unknown): ChatMessage => ({
-  id: `ai-err-${Date.now()}`,
-  sender: 'assistant',
-  content: t('Không kết nối được tới trợ lý tại **{url}** ({error}). Hãy kiểm tra backend đã chạy bằng `uvicorn src.main:app --port 8000` trong thư mục backend rồi thử lại.', {
-    url: API_BASE_URL,
-    error: err instanceof Error ? err.message : String(err),
-  }),
-  timestamp: nowTime(),
-  isError: true
-});
+const isAbort = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
+
+// Câu thông báo cho người dùng; chi tiết kỹ thuật chỉ ghi ra console
+const friendlyError = (err: unknown): string => {
+  // 429 (gửi quá nhanh), 403 (không có quyền): backend đã viết sẵn câu dành cho người dùng
+  if (err instanceof ApiError && (err.status === 429 || err.status === 403)) return err.message;
+  // fetch thất bại (mất mạng, máy chủ không phản hồi) ném TypeError
+  if (err instanceof TypeError) return t('Không kết nối được tới trợ lý. Bạn kiểm tra kết nối mạng rồi thử lại nhé.');
+  return t('Trợ lý đang bận hoặc gặp sự cố tạm thời. Bạn thử lại sau ít phút nhé.');
+};
+
+const errorMessage = (err: unknown, retry?: ChatMessage['retry']): ChatMessage => {
+  console.error('[Chat]', err);
+  return {
+    id: `ai-err-${Date.now()}`,
+    sender: 'assistant',
+    content: friendlyError(err),
+    timestamp: nowTime(),
+    isError: true,
+    retry
+  };
+};
 
 // Nhãn hiển thị cho các giai đoạn `status` mà graph LangGraph phát ra
 const STAGE_LABELS: Record<string, string> = {
@@ -128,7 +142,6 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
   // Sản phẩm đang mở ngăn chính sách nơi bán
   const [policyProduct, setPolicyProduct] = useState<ProductItem | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<CitationItem | null>(null);
-  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
   const [dismissedClarifications, setDismissedClarifications] = useState<Record<string, boolean>>({});
 
   const activeConversation = conversations.find(c => c.id === activeId) ?? null;
@@ -178,6 +191,19 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const handledRequestIds = useRef<Set<string>>(new Set());
+  // Yêu cầu đang chạy, để nút Dừng huỷ được (rời màn hình chat cũng huỷ luôn)
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const startRequest = () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return controller;
+  };
+  const finishRequest = (controller: AbortController) => {
+    if (abortRef.current === controller) abortRef.current = null;
+  };
+  const handleStop = () => abortRef.current?.abort();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -219,9 +245,10 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
     updateMessages(convId, prev => [...prev, { id: `usr-${Date.now()}`, sender: 'user', content: question, timestamp: nowTime() }]);
     setBusyId(convId);
     setActiveReasoning([{ id: 'step-compare', label: t(STAGE_LABELS.comparing), status: 'running', detail: t('{count} sản phẩm: {names}', { count: products.length, names: products.map(p => p.brand || p.name).join(', ') }) }]);
+    const controller = startRequest();
 
     try {
-      const { comparison, summary } = await compareProducts(convId, products);
+      const { comparison, summary } = await compareProducts(convId, products, controller.signal);
       updateMessages(convId, prev => [
         ...prev,
         {
@@ -240,8 +267,12 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
         }
       ]);
     } catch (err) {
-      updateMessages(convId, prev => [...prev, errorMessage(err)]);
+      const reply: ChatMessage = isAbort(err)
+        ? { id: `ai-cmp-${Date.now()}`, sender: 'assistant', content: '', timestamp: nowTime(), stopped: true }
+        : errorMessage(err);
+      updateMessages(convId, prev => [...prev, reply]);
     } finally {
+      finishRequest(controller);
       setBusyId(null);
       setActiveReasoning([]);
     }
@@ -255,17 +286,27 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
   ];
 
   // displayText: chữ hiện trong bong bóng chat khi khác câu gửi đi (VD nhãn mức ngân sách đã dịch)
-  const handleSendQuery = async (queryText?: string, displayText?: string) => {
+  // isRetry: gửi lại câu hỏi cuối, thay câu trả lời lỗi / đã dừng thay vì thêm tin nhắn người dùng mới
+  const handleSendQuery = async (queryText?: string, displayText?: string, isRetry = false) => {
     const text = queryText || inputQuery;
     if (!text.trim() || isProcessing) return;
     const shown = displayText || text;
 
     // Câu hỏi đầu tiên của đoạn chat mới trở thành tên đoạn chat
     const convId = activeConversation?.id ?? createConversation(shown);
-    updateMessages(convId, prev => [...prev, { id: `usr-${Date.now()}`, sender: 'user', content: shown, timestamp: nowTime() }]);
+    if (isRetry) {
+      // Bỏ câu trả lời lỗi / dang dở sau câu hỏi cuối của người dùng
+      updateMessages(convId, prev => {
+        const lastUser = prev.map(m => m.sender).lastIndexOf('user');
+        return prev.slice(0, lastUser + 1);
+      });
+    } else {
+      updateMessages(convId, prev => [...prev, { id: `usr-${Date.now()}`, sender: 'user', content: shown, timestamp: nowTime() }]);
+    }
     if (!queryText) setInputQuery('');
     setBusyId(convId);
-    setSelectedOptionId(null);
+    const controller = startRequest();
+    const retry = { query: text, display: displayText };
 
     // Tin nhắn của agent được dựng dần theo từng sự kiện SSE
     const draft: ChatMessage = { id: `ai-${Date.now()}`, sender: 'assistant', content: '', timestamp: nowTime(), query: text };
@@ -305,26 +346,42 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
         onDone: info => {
           draft.notes = info.searchNotes;
         }
-      });
+      }, { signal: controller.signal });
       if (!draft.content && !draft.products) {
         draft.content = t('Tôi chưa có câu trả lời cho yêu cầu này. Bạn thử diễn đạt lại giúp tôi nhé.');
       }
       upsert();
       if (draft.products?.length) onResults(text, draft.products);
     } catch (err) {
-      // Giữ phần đã nhận được (nếu có), thêm thông báo lỗi
-      updateMessages(convId, prev => [...prev.filter(m => m.id !== draft.id || m.content || m.products), errorMessage(err)]);
+      if (isAbort(err)) {
+        // Người dùng bấm Dừng: giữ phần đã nhận được, bỏ câu hỏi làm rõ / gợi ý của lượt dang dở
+        draft.stopped = true;
+        draft.retry = retry;
+        draft.clarification = undefined;
+        draft.suggestions = undefined;
+        upsert();
+        if (draft.products?.length) onResults(text, draft.products);
+      } else {
+        // Giữ phần đã nhận được (nếu có), thêm thông báo lỗi
+        updateMessages(convId, prev => [...prev.filter(m => m.id !== draft.id || m.content || m.products), errorMessage(err, retry)]);
+      }
     } finally {
+      finishRequest(controller);
       setBusyId(null);
       setActiveReasoning([]);
     }
   };
 
-  const handleConfirmClarification = () => {
-    const option = activeClarification?.options.find(o => o.id === selectedOptionId);
-    if (!option) return;
-    setSelectedOptionId(null);
-    void handleSendQuery(option.value, option.label);
+  const handleRetry = (retry: NonNullable<ChatMessage['retry']>) => void handleSendQuery(retry.query, retry.display, true);
+
+  // Bỏ qua = bảo trợ lý tìm luôn với thông tin đang có; tin nhắn cũ không có skipValue thì chỉ ẩn thẻ
+  const handleSkipClarification = () => {
+    const skip = activeClarification?.skipValue;
+    if (skip) {
+      void handleSendQuery(skip, t('Bỏ qua, tìm luôn'));
+    } else if (lastMessage) {
+      setDismissedClarifications(prev => ({ ...prev, [lastMessage.id]: true }));
+    }
   };
 
   const lastAssistantId = [...messages].reverse().find(m => m.sender === 'assistant')?.id;
@@ -425,7 +482,13 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
                 {msg.sender === 'assistant' ? (
                   <div className={msg.isError ? 'flex gap-2 text-red-800' : ''}>
                     {msg.isError && <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
-                    <Markdown text={msg.content} />
+                    {msg.content && <Markdown text={msg.content} />}
+                    {msg.stopped && (
+                      <div className={`flex items-center gap-1.5 text-[11px] italic text-stone-500 ${msg.content ? 'mt-2' : ''}`}>
+                        <Square className="w-3 h-3" />
+                        {t('Đã dừng trả lời')}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="whitespace-pre-line">{msg.content}</div>
@@ -517,6 +580,16 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
                 </div>
               )}
 
+              {msg.retry && msg.id === lastMessage?.id && !isProcessing && (
+                <button
+                  onClick={() => handleRetry(msg.retry!)}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-stone-300 rounded-full text-[11px] font-semibold text-stone-800 hover:border-stone-500 hover:text-stone-950 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {t('Thử lại')}
+                </button>
+              )}
+
               {msg.showPolicyAction && (
                 <button
                   onClick={() => onOpenPolicy(msg.products?.length ? {
@@ -579,45 +652,28 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
                 )}
               </div>
 
-              <div className="space-y-2">
-                {activeClarification.options.map((opt) => (
-                  <label
-                    key={opt.id}
-                    className={`flex items-start gap-3 p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                      selectedOptionId === opt.id
-                        ? 'bg-white border-stone-800 shadow-sm text-stone-900 font-medium'
-                        : 'bg-white/80 border-stone-200 text-stone-700 hover:bg-white hover:border-stone-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="clarification"
-                      checked={selectedOptionId === opt.id}
-                      onChange={() => setSelectedOptionId(opt.id)}
-                      className="mt-0.5 text-stone-900 focus:ring-stone-900"
-                    />
-                    <div className="flex-1">
-                      <div className="font-semibold text-stone-900">{opt.label}</div>
-                      {opt.sublabel && <div className="text-[11px] text-stone-500 mt-0.5">{opt.sublabel}</div>}
-                    </div>
-                  </label>
-                ))}
+              {/* Bấm một lựa chọn là gửi luôn; lựa chọn "cứ tìm" nằm ở nút Bỏ qua bên dưới */}
+              <div className="flex flex-wrap gap-2">
+                {activeClarification.options
+                  .filter(opt => opt.value !== activeClarification.skipValue)
+                  .map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => void handleSendQuery(opt.value, opt.label)}
+                      className="px-3.5 py-2 rounded-xl border border-stone-200 bg-white text-xs font-semibold text-stone-800 hover:border-stone-800 hover:bg-white shadow-sm transition-all"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
               </div>
 
               {activeClarification.allowCustomInput && (
                 <p className="text-[11px] text-stone-500">{t('Hoặc gõ câu trả lời của bạn vào ô chat bên dưới (VD: "tầm 18 triệu, dùng để học lập trình").')}</p>
               )}
 
-              <div className="flex items-center justify-between pt-2 border-t border-amber-100">
-                <button onClick={() => lastMessage && setDismissedClarifications(prev => ({ ...prev, [lastMessage.id]: true }))} className="text-xs font-medium text-stone-500 hover:text-stone-800">
-                  {t('Bỏ qua')}
-                </button>
-                <button
-                  onClick={handleConfirmClarification}
-                  disabled={!selectedOptionId}
-                  className="px-4 py-2 bg-stone-900 text-amber-50 text-xs font-semibold rounded-lg hover:bg-stone-800 transition-colors disabled:bg-stone-300"
-                >
-                  {t('Xác nhận')}
+              <div className="flex items-center justify-end pt-2 border-t border-amber-100">
+                <button onClick={handleSkipClarification} className="text-xs font-medium text-stone-500 hover:text-stone-800">
+                  {t('Bỏ qua, tìm luôn')}
                 </button>
               </div>
             </div>
@@ -654,18 +710,31 @@ export const SearchAssistantView: React.FC<SearchAssistantViewProps> = ({
                   {inputQuery.length}/{MAX_MESSAGE_CHARS}
                 </span>
               )}
-              <button
-                type="submit"
-                disabled={!inputQuery.trim() || isProcessing}
-                className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
-                  inputQuery.trim() && !isProcessing
-                    ? 'bg-stone-900 text-amber-50 hover:bg-stone-800 shadow-sm'
-                    : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-                }`}
-                title={t('Gửi')}
-              >
-                <Send className="w-4 h-4" />
-              </button>
+              {isProcessing ? (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  className="w-9 h-9 rounded-lg flex items-center justify-center bg-stone-900 text-amber-50 hover:bg-stone-800 shadow-sm transition-all"
+                  title={t('Dừng trả lời')}
+                  aria-label={t('Dừng trả lời')}
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!inputQuery.trim()}
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all ${
+                    inputQuery.trim()
+                      ? 'bg-stone-900 text-amber-50 hover:bg-stone-800 shadow-sm'
+                      : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                  }`}
+                  title={t('Gửi')}
+                  aria-label={t('Gửi')}
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              )}
             </form>
           </div>
         </div>

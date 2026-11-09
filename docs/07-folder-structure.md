@@ -38,7 +38,7 @@ backend/
 ├── services/
 │   ├── auth/               # service: băm mật khẩu, token, giới hạn đăng nhập sai
 │   ├── catalog/            # Dữ liệu sản phẩm: categories (danh mục theo mã sàn), data_processor (làm sạch),
-│   │   │                   # enricher (trang chi tiết, giá hiện tại), ranker, semantic_filter, batch_crawler, scraper
+│   │   │                   # enricher (trang chi tiết, giá hiện tại), ranker, spec_fit (lọc + chấm theo thông số), batch_crawler, scraper
 │   │   └── platforms/      # Các sàn (Strategy + Registry): base (giao diện chung), common (JSON-LD, từ khóa),
 │   │                       # tiki, mwg (TGDĐ + ĐMX), fpt, cellphones, registry (danh sách sàn duy nhất)
 │   ├── pricing/            # guardrails (giá bất thường), watcher (theo dõi giá định kỳ)

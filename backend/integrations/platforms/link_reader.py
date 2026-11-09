@@ -19,7 +19,8 @@ from bs4 import BeautifulSoup
 
 from integrations import safe_http
 from integrations.platforms.errors import CRAWL_ERRORS
-from integrations.platforms.mwg import parse_mwg_price
+from integrations.platforms.mwg import parse_mwg_detail, parse_mwg_price
+from integrations.tls import ssl_context
 from shared.categories import tiki_path_from_breadcrumbs
 
 logger = logging.getLogger("link_reader")
@@ -77,6 +78,13 @@ def _jsonld_product(soup: BeautifulSoup) -> dict[str, Any]:
             out["price"] = float((schema.get("offers") or {}).get("price") or 0)
         except (ValueError, TypeError):
             out["price"] = 0.0
+        rating = schema.get("aggregateRating")
+        if isinstance(rating, dict):
+            try:
+                out["rating"] = float(rating.get("ratingValue") or 0)
+                out["review_count"] = int(float(rating.get("reviewCount") or rating.get("ratingCount") or 0))
+            except (ValueError, TypeError):
+                pass
         image = schema.get("image")
         if isinstance(image, list) and image:
             out["image"] = image[0] if isinstance(image[0], str) else image[0].get("url", "")
@@ -122,6 +130,15 @@ async def _fetch_html(url: str) -> str | None:
     return await safe_http.fetch_text(url, headers=HEADERS, timeout=TIMEOUT_SECONDS)
 
 
+def _reviews_label(count: Any) -> str:
+    """Số lượt đánh giá trên trang -> nhãn; không có thì nói rõ là chưa có."""
+    try:
+        n = int(count or 0)
+    except (ValueError, TypeError):
+        n = 0
+    return f"{n} đánh giá" if n > 0 else "Chưa có đánh giá"
+
+
 def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, price, **fields) -> dict[str, Any]:
     """Dạng sản phẩm chung của mọi link đọc từ trang (không biết giá gốc thì lấy bằng giá bán)."""
     original = max(fields.pop("original", 0.0) or 0.0, price)
@@ -138,14 +155,15 @@ def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, 
         "originalPrice": original,
         "currentPrice": price,
         "discountPercent": int(round((1 - price / original) * 100)) if original > price else 0,
-        "rating": fields.pop("rating"),
-        "reviewsCount": "Chính hãng",
+        "rating": fields.pop("rating", 0.0),  # 0 = chưa có đánh giá
+        "reviewsCount": fields.pop("reviewsCount", ""),
         "sku": fields.pop("sku"),
         "image": fields.pop("image"),
         "specs": fields.pop("specs"),
         "brand": fields.pop("brand"),
-        "warranty": fields.pop("warranty"),
-        "deliveryTag": fields.pop("deliveryTag"),
+        "warranty": fields.pop("warranty", None),  # None = chưa rõ
+        "returnPolicy": fields.pop("returnPolicy", None),
+        "deliveryTag": None,  # trang sản phẩm không cho biết thời gian giao tới địa chỉ người dùng
         "selected": True,
         "externalUrl": url,
     }
@@ -155,6 +173,8 @@ def _link_product(url, name, platform, platform_name, badge_color, badge_bg, *, 
 async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str, badge_bg: str) -> dict[str, Any]:
     """Trang chi tiết: JSON-LD trước, rồi OpenGraph, cuối cùng giá trong HTML."""
     name, image, description, price, original, brand, specs = "", "", "", 0.0, 0.0, "Chính hãng", {}
+    ld: dict[str, Any] = {}
+    detail: dict[str, Any] = {}
     html = await _fetch_html(url)
     if html:
         soup = BeautifulSoup(html, "html.parser")
@@ -166,6 +186,7 @@ async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str
         # Giá đang hiển thị trước: JSON-LD của TGDĐ / ĐMX ghi giá của khu vực giá khác
         price, original = parse_mwg_price(html) or (ld.get("price") or _html_price(html), 0.0)
         specs = _page_specs(soup)
+        detail = parse_mwg_detail(html)  # bảo hành / đổi trả ghi trên trang
     return _link_product(
         url,
         name or slug_to_title(url, platform_name),
@@ -178,13 +199,14 @@ async def read_mwg(url: str, platform: str, platform_name: str, badge_color: str
         aiMatchScore=95,
         price=price,
         original=original,
-        rating=4.8,
+        rating=ld.get("rating", 0.0),
+        reviewsCount=_reviews_label(ld.get("review_count")),
         image=image,
         specs=specs or description,
         brand=brand,
         sku=f"{platform.upper()}-{_url_hash(url, 10000)}",
-        warranty="Bảo hành 12 tháng tại hệ thống",
-        deliveryTag="Sẵn hàng tại siêu thị",
+        warranty=detail.get("warranty"),
+        returnPolicy=detail.get("returnPolicy"),
     )
 
 
@@ -193,9 +215,11 @@ async def read_generic(
 ) -> dict[str, Any]:
     """Trang bất kỳ qua OpenGraph và thẻ giá product:price:amount."""
     name, image, description, price = "", "", "", 0.0
+    ld: dict[str, Any] = {}
     html = await _fetch_html(url)
     if html:
         soup = BeautifulSoup(html, "html.parser")
+        ld = _jsonld_product(soup)
         name, image, description = _page_meta(soup)
         og_price = soup.find("meta", property="product:price:amount")
         try:
@@ -213,13 +237,12 @@ async def read_generic(
         categoryName="Sản phẩm liên kết",
         aiMatchScore=90,
         price=price,
-        rating=5.0,
+        rating=ld.get("rating", 0.0),
+        reviewsCount=_reviews_label(ld.get("review_count")),
         image=image,
         specs=description,
         brand="Chính hãng",
         sku=f"URL-{_url_hash(url, 10000)}",
-        warranty="Theo chính sách gian hàng",
-        deliveryTag="Tiêu chuẩn",
     )
 
 
@@ -243,7 +266,7 @@ def _tiki_product(data: dict[str, Any], product_id: str, url: str) -> dict[str, 
         for a in group.get("attributes", [])
         if a.get("name") and a.get("value")
     }
-    warranty = next((str(w["value"]) for w in data.get("warranty_info", []) if w.get("value")), "Chính hãng 12 tháng")
+    warranty = next((str(w["value"]) for w in data.get("warranty_info", []) if w.get("value")), None)
     return {
         "id": f"tiki-{product_id}",
         "name": data.get("name", "").strip(),
@@ -259,14 +282,14 @@ def _tiki_product(data: dict[str, Any], product_id: str, url: str) -> dict[str, 
         "originalPrice": float(data.get("original_price") or data.get("list_price") or price),
         "currentPrice": price,
         "discountPercent": int(data.get("discount_rate") or 0),
-        "rating": float(data.get("rating_average") or 5.0),
-        "reviewsCount": f"{data.get('review_count', 0)} đánh giá",
+        "rating": float(data.get("rating_average") or 0.0),  # 0 = chưa có đánh giá
+        "reviewsCount": _reviews_label(data.get("review_count")),
         "sku": str(data.get("sku") or f"TIKI-{product_id}"),
         "image": data.get("thumbnail_url") or "",
         "specs": specs,
         "brand": data.get("brand", {}).get("name", "Chính hãng"),
         "warranty": warranty,
-        "deliveryTag": "TikiNOW Giao 2h",
+        "deliveryTag": None,
         "selected": True,
         "externalUrl": url,
     }
@@ -277,7 +300,7 @@ async def read_tiki(url: str) -> dict[str, Any]:
     product_id = _tiki_product_id(url)
     if product_id:
         try:
-            async with httpx.AsyncClient(headers=HEADERS, timeout=TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(headers=HEADERS, timeout=TIMEOUT_SECONDS, verify=ssl_context()) as client:
                 resp = await client.get(TIKI_API.format(product_id=product_id))
             if resp.status_code == 200:
                 return _tiki_product(resp.json(), product_id, url)

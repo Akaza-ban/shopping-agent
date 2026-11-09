@@ -1,6 +1,7 @@
 import logging
 
 from integrations.platforms import display_names
+from services.catalog.reviews import rating_text
 from shared.exceptions import CrawlerError
 
 from ..state import AgentState, ProductItemModel
@@ -61,8 +62,7 @@ class LinkParserAgent:
             f"**Đã trích xuất thông tin sản phẩm thành công:**\n\n"
             f"- **Tên:** {parsed_product.name}\n"
             f"- **Sàn:** {parsed_product.platformName}\n"
-            f"- **Giá khuyến mãi:** {parsed_product.currentPrice:,.0f} đ\n"
-            f"- **Đánh giá:** {parsed_product.rating} ({parsed_product.reviewsCount})\n"
-            f"- **Ghi chú AI:** {parsed_product.aiSummary}"
+            f"- **Giá hiện tại:** {parsed_product.currentPrice:,.0f} đ\n"
+            f"- **Đánh giá:** {rating_text(parsed_product.rating, parsed_product.reviewsCount)}"
         )
         return state

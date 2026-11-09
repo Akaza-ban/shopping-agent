@@ -16,6 +16,7 @@ from integrations.platforms.common import (
     query_candidates,
     within_price,
 )
+from integrations.tls import ssl_context
 from services.catalog.reviews import sold_label
 from shared.categories import category_path
 
@@ -77,12 +78,15 @@ class FptAdapter(JsonLdDetailAdapter):
     badge_color = "#cb1c22"
     badge_bg = "rgba(203, 28, 34, 0.12)"
     warranty = "Chính hãng FPT Shop"
-    delivery_tag = "Giao nhanh tại FPT Shop"
+    delivery_tag = ""  # trang tìm kiếm không cho biết thời gian giao: không hứa "giao nhanh"
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         """Thử các biến thể từ khóa như TGDĐ / ĐMX."""
         async with httpx.AsyncClient(
-            headers={**BROWSER_HEADERS, "Referer": f"{FPT_DOMAIN}/"}, follow_redirects=True, timeout=12.0
+            headers={**BROWSER_HEADERS, "Referer": f"{FPT_DOMAIN}/"},
+            follow_redirects=True,
+            timeout=12.0,
+            verify=ssl_context(),
         ) as client:
             raw, used = await first_hit(query_candidates(keyword, criteria), lambda q: self._fetch_search(client, q))
         if not raw:

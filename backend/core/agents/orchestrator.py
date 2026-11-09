@@ -8,6 +8,7 @@ from integrations.llm import ask_llm, get_chat_model, parse_llm_json
 from integrations.platforms import platform_mentioned
 from shared.exceptions import LLMError, LLMResponseError
 
+from ..constants import CLARIFY_MAX_QUESTIONS
 from ..prompts.language import language_instruction
 from ..prompts.router_prompts import ROUTER_SYSTEM_PROMPT
 from ..state import AgentState, UniversalSearchCriteria
@@ -19,6 +20,20 @@ _FALLBACK_ADVICE_RE = re.compile(
     r"\b(?:n[êe]n\s+mua|c[óo]\s+n[êe]n\s+mua|n[êe]n\s+ch[ọo]n|ph[âa]n\s+v[âa]n|t[ưu]\s+v[ấa]n|ch[àa]o|hello|hi|alo)\b"
 )
 _PRICE_RE = re.compile(r"(\d+)\s*(triệu|tr|củ)")
+
+
+def _clarify_round_text(round_: dict) -> str:
+    """Đợt hỏi làm rõ đang diễn ra cho router: yêu cầu ban đầu luôn có mặt dù lịch sử chỉ giữ 2 lượt gần nhất."""
+    qa = round_.get("qa") or []
+    lines = [
+        "[Đợt hỏi làm rõ đang diễn ra]",
+        f"Yêu cầu ban đầu: {round_.get('request', '')}",
+        f"Đã hỏi {round_.get('asked', len(qa))}/{CLARIFY_MAX_QUESTIONS} câu:",
+    ]
+    for item in qa:
+        answer = item.get("answer") or "(chính là yêu cầu hiện tại)"
+        lines.append(f"- Hỏi: {item.get('question', '')}\n  Đáp: {answer}")
+    return "\n".join(lines)
 
 
 class OrchestratorAgent:
@@ -63,6 +78,9 @@ class OrchestratorAgent:
         state.intent = self._guard_intent(intent, query.lower())
         about_previous = parsed.get("about_previous_products")
         state.about_previous_products = about_previous if isinstance(about_previous, bool) else None
+        # Router quyết định luôn việc hỏi làm rõ (không tốn thêm một lần gọi LLM); không điền = không cần hỏi
+        clarify = parsed.get("clarify")
+        state.clarify_suggestion = clarify if isinstance(clarify, dict) else {"ready": True}
         criteria = parsed.get("criteria", {})
         if criteria:
             try:
@@ -74,16 +92,19 @@ class OrchestratorAgent:
 
     @staticmethod
     def _router_prompt(state: AgentState, query: str) -> str:
-        """Câu hỏi kèm lịch sử 2 lượt gần nhất và các sản phẩm đã đề xuất (để hiểu câu hỏi nối tiếp)."""
+        """Câu hỏi kèm lịch sử 2 lượt gần nhất, các sản phẩm đã đề xuất và đợt hỏi làm rõ đang diễn ra (nếu có)."""
         from memory.session_manager import session_memory
 
         history = session_memory.format_chat_history_for_prompt(state.session_id, max_turns=2)
         previous_products = session_memory.format_previous_products_for_prompt(state.session_id)
+        clarify_round = session_memory.get_conversation_state(state.session_id).get("clarify_round")
         context = []
         if history:
             context.append(f"[Lịch sử trao đổi trước đó]:\n{history}")
         if previous_products:
             context.append(previous_products)
+        if clarify_round:
+            context.append(_clarify_round_text(clarify_round))
         if not context:
             return f"Yêu cầu của người dùng: {query}"
         return "\n\n".join(context) + f"\n\nYêu cầu hiện tại của người dùng: {query}"

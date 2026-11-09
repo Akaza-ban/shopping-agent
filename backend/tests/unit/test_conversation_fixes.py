@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from core.agents import advisor_context
 from core.state import AgentState, MessageItem, UniversalSearchCriteria
 from memory.session_manager import session_memory
-from services.catalog import semantic_filter as semantic_filter_module
+from services.catalog import spec_fit
 from services.catalog.ranker import score_product
 from services.catalog.reviews import rating_text, review_count
 
@@ -67,17 +67,17 @@ def test_accessory_search_still_goes_through_llm_filter(monkeypatch):
         async def ainvoke(self, messages):
             seen["prompt"] = messages[1].content
             return SimpleNamespace(
-                content=json.dumps({"matched_product_ids": ["pad"], "is_target_available_on_market": True})
+                content=json.dumps({"products": [{"id": "usb", "keep": False}, {"id": "pad", "keep": True}]})
             )
 
-    monkeypatch.setattr(semantic_filter_module, "get_chat_model", lambda **kw: FakeModel())
+    monkeypatch.setattr(spec_fit, "get_chat_model", lambda **kw: FakeModel())
     items = [
         {"id": "usb", "name": "USB Bluetooth 5.0 - miếng lót chuột", "currentPrice": 45000},
         {"id": "pad", "name": "Tấm lót chuột gaming Havit", "currentPrice": 50000},
     ]
     crit = UniversalSearchCriteria(target_entity="lót chuột", is_accessory=True)
-    kept, meta = asyncio.run(semantic_filter_module.semantic_filter.filter_products("lót chuột", items, crit))
-    assert [p["id"] for p in kept] == ["pad"] and meta["is_accessory_search"] is True
+    kept = asyncio.run(spec_fit.screen(items, crit, "lót chuột"))
+    assert [p["id"] for p in kept] == ["pad"]
     assert "CHỦ ĐÍCH tìm phụ kiện" in seen["prompt"]
 
 

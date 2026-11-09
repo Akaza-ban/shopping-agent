@@ -29,6 +29,7 @@ from src.schemas.chat import (
 logger = logging.getLogger("chat_route")
 router = APIRouter(prefix="/chat", tags=["Chat"])
 chat_limit = [Depends(rate_limit("chat"))]
+STREAM_ERROR_MESSAGE = "Trợ lý đang gặp sự cố tạm thời, bạn thử lại sau ít phút nhé."
 
 
 @router.post("", response_model=ChatResponse, dependencies=chat_limit)
@@ -49,8 +50,9 @@ async def _stream(req: ChatRequest, user: UserModel, workflow: ShopAIAgentWorkfl
             async for event in events:
                 yield {"event": event["event"], "data": json.dumps(event["data"], ensure_ascii=False)}
         except Exception as e:  # chốt chặn: lỗi giữa luồng SSE phải báo cho giao diện thay vì cắt ngang kết nối
+            # Chi tiết lỗi chỉ ghi log; người dùng chỉ nhận thông báo chung (không lộ nội dung exception)
             logger.error(f"[SSE Stream Error]: {e}", exc_info=True)
-            yield {"event": "error", "data": json.dumps({"error": str(e)}, ensure_ascii=False)}
+            yield {"event": "error", "data": json.dumps({"error": STREAM_ERROR_MESSAGE}, ensure_ascii=False)}
 
     return EventSourceResponse(sse_generator())
 

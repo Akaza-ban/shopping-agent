@@ -133,7 +133,7 @@ class DataProcessor:
 
         # Reviews count
         clean_reviews = str(raw_reviews or "Chưa có đánh giá").strip()
-        if not clean_reviews:
+        if not clean_reviews or re.fullmatch(r"0\s*đánh giá", clean_reviews, re.IGNORECASE):
             clean_reviews = "Chưa có đánh giá"
 
         return clean_rating, clean_reviews
@@ -182,8 +182,9 @@ class DataProcessor:
             "specs": specs,
             "brand": brand,
             "aiSummary": raw.get("aiSummary", f"{clean_name} - Giá: {curr_price:,.0f} đ"),
-            "warranty": raw.get("warranty", "Chính hãng"),
-            "deliveryTag": raw.get("deliveryTag", "Giao hàng tiêu chuẩn"),
+            # Không có dữ liệu thì để trống (Advisor nói "Chưa rõ"), không tự điền
+            "warranty": raw.get("warranty") or None,
+            "deliveryTag": raw.get("deliveryTag") or None,
             "selected": False,
             "externalUrl": clean_url,
         }

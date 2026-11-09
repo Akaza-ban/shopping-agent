@@ -26,6 +26,7 @@ export const EN: Record<string, string> = {
   "{days} ngày": "{days} days",
   "{count} đánh giá": "{count} reviews",
   "Tóm tắt": "Summary",
+  "Chưa rõ": "Unknown",
 
   // khung ứng dụng, điều hướng
   "Đang kiểm tra phiên đăng nhập...": "Checking your session...",
@@ -152,8 +153,12 @@ export const EN: Record<string, string> = {
   // tư vấn mua sắm (khung chat)
   "Xin chào, tôi là trợ lý mua sắm AI. Hãy mô tả nhu cầu của bạn (ngân sách, cấu hình, mục đích sử dụng), tôi sẽ tìm kiếm trên các sàn, lọc, so sánh và đề xuất sản phẩm phù hợp nhất.":
     "Hi, I'm your AI shopping assistant. Describe what you need (budget, specs, intended use) and I'll search the stores, filter, compare and recommend the best-fitting products.",
-  "Không kết nối được tới trợ lý tại **{url}** ({error}). Hãy kiểm tra backend đã chạy bằng `uvicorn src.main:app --port 8000` trong thư mục backend rồi thử lại.":
-    "Couldn't reach the assistant at **{url}** ({error}). Make sure the backend is running with `uvicorn src.main:app --port 8000` in the backend folder, then try again.",
+  "Không kết nối được tới trợ lý. Bạn kiểm tra kết nối mạng rồi thử lại nhé.": "Couldn't reach the assistant. Please check your connection and try again.",
+  "Trợ lý đang bận hoặc gặp sự cố tạm thời. Bạn thử lại sau ít phút nhé.": "The assistant is busy or having a temporary problem. Please try again in a few minutes.",
+  "Thử lại": "Try again",
+  "Bỏ qua, tìm luôn": "Skip, search now",
+  "Dừng trả lời": "Stop responding",
+  "Đã dừng trả lời": "Response stopped",
   "Phân tích yêu cầu bằng LLM": "Analyzing the request with the LLM",
   "Thu thập dữ liệu từ kho & các sàn": "Collecting data from the catalog & stores",
   "Nới lỏng tiêu chí để tìm phương án gần nhất": "Relaxing criteria to find the closest options",

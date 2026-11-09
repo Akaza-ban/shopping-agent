@@ -109,7 +109,7 @@ class FakeSearch(EcomSearchTool):
         notes.append("ghi chú của phần cào")
         return [{"id": "web", "name": "Từ sàn"}], {"tgdd": 1}
 
-    async def _finalize(self, products, criteria, notes, limit, detail_budget=None):
+    async def _finalize(self, products, criteria, notes, limit, detail_budget=None, screened=False):
         self.detail_budget = detail_budget
         return products
 
@@ -124,12 +124,12 @@ def no_cache(monkeypatch):
     async def nothing(**kwargs):
         return None
 
-    async def keep(query, products, criteria=None):
-        return products, True
+    async def keep(products, criteria, query, wanted=None):
+        return products
 
     monkeypatch.setattr(module.product_repository, "get_cached_search", miss)
     monkeypatch.setattr(module.product_repository, "save_search_cache", nothing)
-    monkeypatch.setattr(module.semantic_filter, "filter_products", keep)
+    monkeypatch.setattr(module.spec_fit, "screen", keep)
     monkeypatch.setattr(module.rag_service, "upsert_products", lambda products: len(products))
     return module
 

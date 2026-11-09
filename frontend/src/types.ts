@@ -53,6 +53,7 @@ export interface ClarificationQuestion {
   contextHint?: string;
   options: ClarificationOption[];
   allowCustomInput: boolean;
+  skipValue?: string; // câu gửi lại khi bấm "Bỏ qua": trợ lý tìm luôn, không hỏi thêm
 }
 
 // Kết quả tool so sánh của backend: mỗi hàng là một tiêu chí, best_index = cột tốt nhất (hoặc null)
@@ -96,6 +97,8 @@ export interface ChatMessage {
   suggestions?: string[]; // câu hỏi gợi ý tiếp theo
   clarification?: ClarificationQuestion; // câu hỏi làm rõ agent đặt ra ở lượt này
   isError?: boolean;
+  stopped?: boolean; // người dùng bấm Dừng khi trợ lý đang trả lời
+  retry?: { query: string; display?: string }; // câu hỏi gửi lại khi bấm "Thử lại"
 }
 
 // Một đoạn chat tư vấn mua sắm; id cũng là session_id gửi lên backend (mỗi đoạn có trí nhớ riêng)
@@ -131,7 +134,7 @@ export interface ProductItem {
   pros: string[]; // lý do cộng điểm khi xếp hạng
   cons: string[]; // lý do trừ điểm (sai thông số, vượt ngân sách...)
   inStock: boolean;
-  warranty: string;
+  warranty?: string; // không có = chưa rõ (backend không tự điền)
   reviewsLabel?: string; // VD: "Đã bán 2,4k", "Chưa có đánh giá"
   returnPolicy?: string;
   attributeMatch?: Record<string, 'verified' | 'mismatch' | 'unknown'>;
@@ -155,7 +158,7 @@ export interface BackendProduct {
   reviewsCount: string;
   image: string;
   specs: Record<string, string> | string | null;
-  warranty: string;
+  warranty?: string | null; // null = chưa rõ
   externalUrl: string;
   updatedAt?: string | null;
   returnPolicy?: string | null;

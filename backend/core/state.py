@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from shared.unverified import PLACEHOLDER_DELIVERY, PLACEHOLDER_REVIEWS, PLACEHOLDER_WARRANTIES, known
+
 # Trường mô tả nhu cầu của tiêu chí (không phải thông số sản phẩm) và các phần trong tên của chúng
 _DESCRIPTIVE_FIELDS = ("usage_purpose", "priority", "brand_tier", "brands", "suggested_brands", "category")
 _USAGE_KEY_PARTS = set("usage_purpose".split("_"))
@@ -107,14 +109,14 @@ class ProductItemModel(BaseModel):
     originalPrice: float
     currentPrice: float
     discountPercent: int = 0
-    rating: float = 4.8
-    reviewsCount: str = "100+ đánh giá"
+    rating: float = 0.0  # 0 = chưa có đánh giá
+    reviewsCount: str = ""
     sku: str = ""
     image: str = ""
     specs: dict[str, Any] | str | None = ""
     aiSummary: str = ""
-    warranty: str = "Chính hãng 12 tháng"
-    deliveryTag: str | None = "Freeship"
+    warranty: str | None = None  # None = chưa rõ (không tự điền "chính hãng 12 tháng")
+    deliveryTag: str | None = None
     selected: bool = False
     externalUrl: str = ""
     sourceCategoryPath: str | None = None
@@ -125,6 +127,22 @@ class ProductItemModel(BaseModel):
     detailFetched: bool = False
     matchReasons: list[str] = Field(default_factory=list)
     attributeMatch: dict[str, str] = Field(default_factory=dict)  # thuộc tính -> verified | mismatch | unknown
+
+    # Dữ liệu cũ trong cache / CSDL / kho RAG có thể còn giá trị điền sẵn: bỏ trước khi tới Advisor và giao diện
+    @field_validator("warranty", mode="before")
+    @classmethod
+    def _real_warranty(cls, v):
+        return known(v, PLACEHOLDER_WARRANTIES)
+
+    @field_validator("deliveryTag", mode="before")
+    @classmethod
+    def _real_delivery(cls, v):
+        return known(v, PLACEHOLDER_DELIVERY)
+
+    @field_validator("reviewsCount", mode="before")
+    @classmethod
+    def _real_reviews(cls, v):
+        return known(v, PLACEHOLDER_REVIEWS) or ""
 
 
 class MessageItem(BaseModel):
@@ -157,6 +175,9 @@ class AgentState(BaseModel):
     criteria: UniversalSearchCriteria | None = None
     # Router: câu hỏi có nói về sản phẩm đã đề xuất ở lượt trước không (None = không rõ, VD khi không có LLM)
     about_previous_products: bool | None = None
+    # Router: có cần hỏi làm rõ thêm không ({"ready": True} hoặc câu hỏi kèm lựa chọn);
+    # None = router không dùng được LLM -> hỏi ngân sách theo quy tắc (core/flows/clarification.py)
+    clarify_suggestion: dict[str, Any] | None = None
     messages: list[MessageItem] = Field(default_factory=list)
     found_products: list[ProductItemModel] = Field(default_factory=list)
     recommended_product: ProductItemModel | None = None

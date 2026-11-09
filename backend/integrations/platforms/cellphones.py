@@ -14,6 +14,7 @@ from integrations.platforms.common import (
     query_candidates,
     within_price,
 )
+from integrations.tls import ssl_context
 from shared.categories import category_path
 
 logger = logging.getLogger("platforms.cellphones")
@@ -71,7 +72,7 @@ class CellphonesAdapter(JsonLdDetailAdapter):
     badge_color = "#d70018"
     badge_bg = "rgba(215, 0, 24, 0.12)"
     warranty = "Chính hãng CellphoneS"
-    delivery_tag = "Giao nhanh tại CellphoneS"
+    delivery_tag = ""  # trang tìm kiếm không cho biết thời gian giao: không hứa "giao nhanh"
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         wants_used = "cũ" in f"{user_query} {keyword}".lower().split()
@@ -79,7 +80,9 @@ class CellphonesAdapter(JsonLdDetailAdapter):
         if wants_used and user_query:
             candidates = [user_query] + [q for q in candidates if q != user_query]
         headers = {**BROWSER_HEADERS, "Accept": "application/json", "Origin": CPS_DOMAIN, "Referer": f"{CPS_DOMAIN}/"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=10.0) as client:
+        async with httpx.AsyncClient(
+            headers=headers, follow_redirects=True, timeout=10.0, verify=ssl_context()
+        ) as client:
             raw, used = await first_hit(candidates, lambda q: self._fetch_search(client, q))
         if not raw:
             logger.info(f"[CellphoneS] Không có sản phẩm nào cho '{keyword}'")

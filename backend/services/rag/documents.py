@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from services.catalog.categories import categorize
+from shared.unverified import PLACEHOLDER_WARRANTIES, known
 
 Product = dict[str, Any]
 
-_GENERIC_WARRANTY = "Theo chính sách gian hàng"
 _MAX_SPECS_CHARS = 1500
 
 
@@ -26,8 +26,9 @@ def build_document(p: Product) -> str:
     specs = _specs_text(p.get("specs"))
     if specs:
         parts.append(f"Thông số kỹ thuật: {specs[:_MAX_SPECS_CHARS]}")
-    if p.get("warranty") and p["warranty"] != _GENERIC_WARRANTY:
-        parts.append(f"Bảo hành: {p['warranty']}")
+    warranty = known(p.get("warranty"), PLACEHOLDER_WARRANTIES)
+    if warranty:
+        parts.append(f"Bảo hành: {warranty}")
     return "\n".join(parts)
 
 

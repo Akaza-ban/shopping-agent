@@ -9,6 +9,7 @@ import httpx
 
 from integrations.platforms import get_platform
 from integrations.platforms.errors import CRAWL_ERRORS
+from integrations.tls import ssl_context
 
 logger = logging.getLogger("product_enricher")
 
@@ -22,7 +23,7 @@ class ProductEnricher:
         self.timeout = timeout
         self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._pending: set = set()  # lần tải vượt thời gian chờ, tiếp tục chạy ở nền
-        self._ssl_context = httpx.create_ssl_context()
+        self._ssl_context = ssl_context()
 
     def _cache_get(self, key: str) -> dict[str, Any] | None:
         hit = self._cache.get(key)
@@ -54,7 +55,9 @@ class ProductEnricher:
         if not platform:
             return None
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=self.timeout, verify=self._ssl_context
+            ) as client:
                 return await platform.fetch_price(client, product)
         except CRAWL_ERRORS as e:
             logger.warning(f"[Enricher] Không đọc được giá hiện tại '{product.get('name', '')[:50]}': {e}")

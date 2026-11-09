@@ -16,6 +16,7 @@ from integrations.platforms.common import (
     within_price,
 )
 from integrations.platforms.errors import CRAWL_ERRORS
+from integrations.tls import ssl_context
 from shared.categories import tiki_path_from_breadcrumbs
 
 logger = logging.getLogger("platforms.tiki")
@@ -60,8 +61,9 @@ class TikiAdapter(PlatformAdapter):
     aliases = ("tiki",)
     badge_color = "#1a94ff"
     badge_bg = "rgba(26, 148, 255, 0.15)"
-    warranty = "Chính hãng Tiki"
-    delivery_tag = "TikiNOW"
+    # Tiki là sàn có nhiều người bán: bảo hành đọc từ trang chi tiết (enricher), không gán chung cho cả sàn
+    warranty = ""
+    delivery_tag = ""
 
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         products = await self._search_once(keyword, criteria, limit)
@@ -81,7 +83,9 @@ class TikiAdapter(PlatformAdapter):
         if criteria and (criteria.min_price or criteria.max_price):
             params["price"] = f"{int(criteria.min_price or 0)},{int(criteria.max_price or 1000000000)}"
         try:
-            async with httpx.AsyncClient(headers=API_HEADERS, follow_redirects=True, timeout=8.0) as client:
+            async with httpx.AsyncClient(
+                headers=API_HEADERS, follow_redirects=True, timeout=8.0, verify=ssl_context()
+            ) as client:
                 resp = await client.get("https://tiki.vn/api/v2/products", params=params)
             if resp.status_code != 200:
                 return []
@@ -107,10 +111,10 @@ class TikiAdapter(PlatformAdapter):
                         "currentPrice": curr_price,
                         "discountPercent": int(item.get("discount_rate") or 0),
                         "rating": rating,
-                        "reviewsCount": f"{reviews_count} đánh giá",
+                        "reviewsCount": f"{reviews_count} đánh giá" if reviews_count else "Chưa có đánh giá",
                         "sku": str(item.get("sku") or f"TIKI-{item.get('id')}"),
                         "image": item.get("thumbnail_url") or "",
-                        "aiSummary": f"Sản phẩm thực tế trên Tiki: {item.get('name')}. Đánh giá {rating}/5 với {reviews_count} lượt mua.",
+                        "aiSummary": f"Sản phẩm thực tế trên Tiki: {item.get('name')}.",
                         "externalUrl": f"https://tiki.vn/{url_path}" if url_path else "https://tiki.vn",
                     }
                 )

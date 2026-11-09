@@ -1,0 +1,17 @@
+server {
+    listen ${PORT};
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # File build có mã băm trong tên: lưu đệm lâu dài
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Ứng dụng một trang: đường dẫn không có file thật -> index.html (React tự điều hướng)
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri $uri/ /index.html;
+    }
+}

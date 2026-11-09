@@ -29,9 +29,9 @@ class RawProduct(TypedDict, total=False):
     specs: dict[str, Any] | str
     aiSummary: str
     aiMatchScore: int  # điểm phù hợp 0-100 do bộ xếp hạng tính
-    warranty: str
+    warranty: str | None  # None = chưa rõ
     returnPolicy: str
-    deliveryTag: str
+    deliveryTag: str | None
     externalUrl: str
     updatedAt: str
     detailFetched: bool  # đã đọc trang chi tiết chưa

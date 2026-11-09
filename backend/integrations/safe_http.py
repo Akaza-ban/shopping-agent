@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from integrations.tls import ssl_context
 from shared.exceptions import InvalidInputError
 
 logger = logging.getLogger("safe_http")
@@ -66,7 +67,7 @@ async def fetch_text(
     """Nội dung trang; None nếu link / redirect bị chặn, lỗi mạng, mã trả về khác 200 hoặc trang quá lớn."""
     try:
         async with httpx.AsyncClient(
-            headers=headers, timeout=timeout, follow_redirects=False, transport=transport
+            headers=headers, timeout=timeout, follow_redirects=False, transport=transport, verify=ssl_context()
         ) as client:
             for _ in range(max_redirects + 1):
                 await check_public_url(url)

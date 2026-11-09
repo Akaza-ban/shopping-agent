@@ -20,7 +20,8 @@ from services.rag.text import query_terms
 
 logger = logging.getLogger("rag_service")
 
-DEFAULT_CHROMA_PATH = os.path.join(
+# CHROMA_PATH (biến môi trường): thư mục lưu kho RAG; trên máy chủ đặt trong ổ đĩa lưu bền (VD /data/chroma_db)
+DEFAULT_CHROMA_PATH = os.getenv("CHROMA_PATH") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "chroma_db"
 )
 RRF_K = 60

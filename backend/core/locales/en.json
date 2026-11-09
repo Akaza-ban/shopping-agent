@@ -7,6 +7,8 @@
   "clarify.budget_under": "Under {amount} million VND",
   "clarify.budget_over": "Over {amount} million VND",
   "clarify.budget_range": "{low}–{high} million VND",
+  "clarify.skip": "No more questions, just search",
+  "clarify.step": "Question {step}/{total}",
 
   "suggest.link": [
     "Compare {name} with rivals in the same price range",

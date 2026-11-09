@@ -23,6 +23,7 @@ from integrations.platforms.common import (
     query_candidates,
     within_price,
 )
+from integrations.tls import ssl_context
 from services.catalog.reviews import sold_label
 
 logger = logging.getLogger("platforms.mwg")
@@ -226,7 +227,9 @@ class MwgAdapter(PlatformAdapter):
     async def search(self, keyword, criteria, limit, notes, user_query=""):
         """Thử nhiều biến thể từ khóa cho tới khi trang trả về sản phẩm (xem query_candidates)."""
         headers = {**BROWSER_HEADERS, "Referer": f"{self.domain}/"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=12.0) as client:
+        async with httpx.AsyncClient(
+            headers=headers, follow_redirects=True, timeout=12.0, verify=ssl_context()
+        ) as client:
             raw, used = await first_hit(query_candidates(keyword, criteria), lambda q: self._fetch_model(client, q))
         if not raw:
             logger.info(
@@ -323,7 +326,7 @@ TGDD = MwgAdapter(
     "#EEC708",
     "rgba(255, 212, 0, 0.15)",
     "Chính hãng TGDĐ (1 đổi 1 tháng đầu)",
-    "Giao nhanh 2h",
+    "",  # trang danh sách không cho biết thời gian giao: không hứa "giao nhanh 2h"
 )
 DMX = MwgAdapter(
     "dmx",
@@ -333,5 +336,5 @@ DMX = MwgAdapter(
     "#0083d1",
     "rgba(0, 131, 209, 0.15)",
     "Chính hãng ĐMX (Lắp đặt tận nhà)",
-    "Giao hàng & Lắp đặt",
+    "",
 )

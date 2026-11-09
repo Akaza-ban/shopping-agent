@@ -5,7 +5,8 @@
     3. from_crawl()  cào trực tiếp các sàn
     remember()       lưu kết quả cào vào kho RAG (ở nền) và cache SQLite 2 giờ
 
-Mọi nguồn đều đi qua tool._finalize() (bồi đắp chi tiết, loại giá bất thường, xếp hạng).
+RAG và cào đi qua screen() (đọc trang chi tiết, rồi một lần gọi LLM vừa lọc phụ kiện vừa chấm mức hợp nhu cầu);
+mọi nguồn đều đi qua tool._finalize() (loại giá bất thường, đối chiếu thông số, xếp hạng).
 """
 
 import asyncio
@@ -14,7 +15,9 @@ from dataclasses import dataclass
 
 from database.repositories import product_repository
 from integrations.platforms.common import strip_attribute_terms, within_price
-from services.catalog.semantic_filter import semantic_filter
+from services.catalog import spec_fit
+from services.catalog.enricher import product_enricher
+from services.catalog.ranker import verifiable_attributes
 from services.rag import rag_service
 from shared.exceptions import DatabaseError
 from shared.fallback import fallback
@@ -25,6 +28,8 @@ from ..state import UniversalSearchCriteria
 logger = logging.getLogger("search_sources")
 
 CACHE_TTL_HOURS = 2
+DETAIL_BUDGET_SECONDS = 2.0  # thời gian tối đa chờ đọc trang chi tiết trong một lượt
+MAX_SCREEN_DETAILS = 16  # số trang chi tiết tối đa đọc trong lúc lọc
 
 # Giữ tham chiếu tới việc chạy nền (asyncio chỉ giữ tham chiếu yếu, task có thể bị thu hồi giữa chừng)
 _background_tasks: set = set()
@@ -60,12 +65,17 @@ def run_in_background(coro) -> None:
     keep_in_background(asyncio.create_task(coro))
 
 
-async def filter_semantic(products: list[RawProduct], s: SearchRequest) -> list[RawProduct]:
-    """Bỏ phụ kiện ăn theo / hàng khác loại (LLM); LLM lỗi thì giữ nguyên danh sách."""
-    kept, _ = await semantic_filter.filter_products(
-        query=strip_attribute_terms(s.keyword, s.criteria) or s.keyword, products=products, criteria=s.criteria
+async def screen(products: list[RawProduct], s: SearchRequest) -> list[RawProduct]:
+    """Đọc trang chi tiết, rồi MỘT lần gọi LLM vừa bỏ phụ kiện ăn theo / hàng khác loại vừa chấm mức hợp nhu cầu.
+
+    LLM lỗi thì giữ nguyên danh sách, không có điểm hợp nhu cầu (spec_fit.screen).
+    """
+    enriched = await product_enricher.enrich(
+        products, max_items=min(len(products), MAX_SCREEN_DETAILS), budget_seconds=DETAIL_BUDGET_SECONDS
     )
-    return kept
+    query = strip_attribute_terms(s.keyword, s.criteria) or s.keyword
+    wanted = verifiable_attributes(s.criteria) if s.criteria else {}
+    return await spec_fit.screen(enriched, s.criteria, query, wanted)
 
 
 async def from_cache(tool, s: SearchRequest) -> list[RawProduct] | None:
@@ -94,7 +104,7 @@ async def from_rag(tool, s: SearchRequest) -> list[RawProduct] | None:
         platform=s.target_platform if s.target_platform != "all" else None,
         limit=s.limit * 2,
     )
-    found = await filter_semantic(found, s) if found else []
+    found = await screen(found, s) if found else []
     if not found:
         return None
     logger.info(
@@ -106,19 +116,19 @@ async def from_rag(tool, s: SearchRequest) -> list[RawProduct] | None:
         "không phải quét trực tiếp lúc này: giá và tình trạng hàng có thể đã thay đổi, "
         "và có thể không khớp chính xác tên model người dùng hỏi."
     )
-    return await tool._finalize(found, s.criteria, s.notes, s.limit)
+    return await tool._finalize(found, s.criteria, s.notes, s.limit, screened=True)
 
 
 async def from_crawl(tool, s: SearchRequest, crawl: "asyncio.Task", crawl_notes: list[str]) -> list[RawProduct]:
-    """Kết quả cào trực tiếp (task đã chạy song song từ trước): lọc ngữ nghĩa rồi xếp hạng."""
+    """Kết quả cào trực tiếp (task đã chạy song song từ trước): lọc ngữ nghĩa + đọc chi tiết rồi xếp hạng."""
     products, source_counts = await crawl
     s.notes.extend(crawl_notes)
-    products = await filter_semantic(products, s)
+    products = await screen(products, s) if products else []
     logger.info(f"Tìm kiếm thực tế cho '{s.keyword}': {source_counts} -> sau thẩm định AI: {len(products)} sản phẩm")
-    return await tool._finalize(products, s.criteria, s.notes, s.limit)
+    return await tool._finalize(products, s.criteria, s.notes, s.limit, screened=True)
 
 
-async def _store_in_rag(products: list[RawProduct]) -> None:
+async def store_in_rag(products: list[RawProduct]) -> None:
     """rag_service tự bỏ qua lỗi ChromaDB / embedding (trả về 0)."""
     stored = await asyncio.to_thread(rag_service.upsert_products, products)
     logger.info(f"[Self-Populating RAG] Đã nạp {stored}/{len(products)} sản phẩm mới cào vào ChromaDB!")
@@ -128,7 +138,7 @@ async def remember(s: SearchRequest, products: list[RawProduct]) -> None:
     """Lưu kết quả cào: kho RAG (tính embedding ở nền, chỉ phục vụ lần sau) và cache SQLite."""
     if not products:
         return
-    run_in_background(_store_in_rag(products))
+    run_in_background(store_in_rag(products))
     with fallback(DatabaseError, "Lỗi tự động lưu cache CSDL", logger):
         await product_repository.save_search_cache(
             query=s.keyword, platform=s.target_platform, products=products, ttl_hours=CACHE_TTL_HOURS

@@ -24,7 +24,7 @@ Hệ thống gồm hai container triển khai riêng (frontend, backend) và hai
 | EcomSearch | `core/tools/ecom_search.py` | Cache-first, cào TGDĐ/ĐMX/Tiki, lọc, hoàn thiện kết quả |
 | Enricher | `services/catalog/enricher.py` | Trang chi tiết: thông số, bảo hành, đổi trả, giá hiện tại |
 | Ranker | `services/catalog/ranker.py` | Đối chiếu thông số, chấm điểm, lý do |
-| Semantic Filter | `services/catalog/semantic_filter.py` | LLM loại phụ kiện / hàng không liên quan |
+| Spec Fit | `services/catalog/spec_fit.py` | Một lần gọi LLM vừa loại phụ kiện / hàng không liên quan, vừa chấm mức hợp nhu cầu từ thông số trang chi tiết |
 | RAG | `services/rag/` (`service.py` + embedding, BM25, bộ lọc, chấm điểm) | ChromaDB, embedding API |
 | Comparison | `core/agents/comparison_agent.py`, `core/tools/spec_comparator.py` | Bảng so sánh |
 | Advisor | `core/agents/shopping_advisor.py`, `core/prompts/advisor_prompts.py` | Ngữ cảnh chuẩn hóa, lời tư vấn stream, câu trả lời dự phòng |

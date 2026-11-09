@@ -14,7 +14,8 @@ from shared.spec_rows import PREFERRED_SPEC_ROWS
 
 from ..state import AgentState, ProductItemModel, UniversalSearchCriteria
 
-DEFAULT_SPECS = "Chính hãng, đầy đủ phụ kiện"
+DEFAULT_SPECS = "Chưa có thông số"
+UNKNOWN = "Chưa rõ"
 MAX_SPEC_ITEMS = 7
 MAX_SPEC_VALUE_CHARS = 70
 MAX_SPEC_TEXT_CHARS = 120
@@ -55,7 +56,7 @@ def format_product(idx: int, p: ProductItemModel) -> str:
         f"- Tên & Sàn: {p.name} (Bán tại: {p.platformName})\n"
         f"- Giá ưu đãi: {p.currentPrice:,.0f} đ{discount} | Đánh giá: {rating_text(p.rating, p.reviewsCount)}\n"
         f"- Cấu hình ({'đã đọc trang chi tiết' if p.detailFetched else 'chỉ từ trang danh sách'}): {format_specs_summary(p.specs)}\n"
-        f"- Bảo hành: {p.warranty or 'Chưa rõ'} | Đổi trả: {p.returnPolicy or 'Theo chính sách của sàn'} | Vận chuyển: {p.deliveryTag or 'Giao tiêu chuẩn'}\n"
+        f"- Bảo hành: {p.warranty or UNKNOWN} | Đổi trả: {p.returnPolicy or UNKNOWN} | Vận chuyển: {p.deliveryTag or UNKNOWN}\n"
         f"- Link: {p.externalUrl or 'không có'}"
     )
 

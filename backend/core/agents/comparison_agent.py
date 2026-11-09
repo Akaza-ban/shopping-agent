@@ -10,13 +10,17 @@ class ComparisonAgent:
     def __init__(self):
         self.comparator = SpecComparatorTool()
 
-    async def compare(self, state: AgentState) -> AgentState:
+    async def compare(self, state: AgentState, trusted_same_kind: bool = False) -> AgentState:
+        """`trusted_same_kind`: sản phẩm đến từ một lượt tìm đã lọc đúng loại hàng -> không hỏi LLM có cùng loại không.
+
+        Kiểm tra ngành hàng bằng quy tắc (mixed_categories) vẫn luôn chạy.
+        """
         if len(state.found_products) < 2:
             return state
         products_dict = [p.model_dump() for p in state.found_products]
         await category_resolver.resolve(products_dict)
         same_kind = None
-        if not mixed_categories(products_dict):
+        if not trusted_same_kind and not mixed_categories(products_dict):
             sources = {(category_resolver.source_of(p) or (None,))[0] for p in products_dict}
             if len(sources) > 1 or None in sources:
                 same_kind = await category_resolver.same_kind(products_dict)

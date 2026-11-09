@@ -41,6 +41,14 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   return res;
 }
 
+// Lỗi từ backend kèm mã HTTP (0 = lỗi giữa luồng SSE) để giao diện chọn thông báo phù hợp
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function errorDetail(res: Response): Promise<string> {
   try {
     const body = await res.json();
@@ -108,7 +116,7 @@ export function toProductItem(p: BackendProduct): ProductItem {
     pros: reasons.filter(r => !NEGATIVE_REASON.test(r)),
     cons: reasons.filter(r => NEGATIVE_REASON.test(r)),
     inStock: true,
-    warranty: p.warranty,
+    warranty: p.warranty ?? undefined,
     returnPolicy: p.returnPolicy ?? undefined,
     attributeMatch: p.attributeMatch,
     updatedAt: p.updatedAt ?? undefined,
@@ -137,6 +145,7 @@ interface BackendClarification {
   context_hint?: string;
   options: { id: string; label: string; value: string }[];
   allow_custom_input?: boolean;
+  skip_value?: string;
 }
 
 const toClarification = (c: BackendClarification): ClarificationQuestion => ({
@@ -146,6 +155,7 @@ const toClarification = (c: BackendClarification): ClarificationQuestion => ({
   contextHint: c.context_hint,
   options: c.options.map(o => ({ id: o.id, label: o.label, value: o.value })),
   allowCustomInput: c.allow_custom_input ?? true,
+  skipValue: c.skip_value,
 });
 
 // phiên chat
@@ -200,7 +210,7 @@ function dispatch(event: string, data: unknown, h: ChatStreamHandlers) {
       h.onDone?.({ intent: d.intent, relaxedSearch: d.relaxed_search, searchNotes: d.search_notes ?? [] });
       break;
     }
-    case 'error': throw new Error((data as StreamPayloads['error']).error || t('Lỗi không xác định từ backend'));
+    case 'error': throw new ApiError((data as StreamPayloads['error']).error || t('Lỗi không xác định từ backend'), 0);
   }
 }
 
@@ -217,7 +227,7 @@ export async function streamChat(
     body: JSON.stringify({ session_id: sessionId, message, platform: options.platform ?? 'all', language: currentLanguage() }),
     signal: options.signal,
   });
-  if (!res.ok || !res.body) throw new Error(await errorDetail(res));
+  if (!res.ok || !res.body) throw new ApiError(await errorDetail(res), res.status);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -247,13 +257,15 @@ export async function streamChat(
 export async function compareProducts(
   sessionId: string,
   products: ProductItem[],
+  signal?: AbortSignal,
 ): Promise<{ comparison?: ComparisonResult; summary: string }> {
   const payload = products.map(p => p.raw ?? fromProductItem(p));
   const res = await apiFetch('/api/chat/compare', {
     method: 'POST',
     body: JSON.stringify({ session_id: sessionId, products: payload }),
+    signal,
   });
-  if (!res.ok) throw new Error(await errorDetail(res));
+  if (!res.ok) throw new ApiError(await errorDetail(res), res.status);
   const data = await res.json();
   return { comparison: toComparison(data), summary: data.summary ?? '' };
 }

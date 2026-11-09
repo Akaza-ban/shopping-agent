@@ -62,7 +62,7 @@ python -c "import json; from src.main import app; s=app.openapi(); s['paths']={p
 | `status` | `{stage, message}` — `routing`, `retrieval`, `relaxing`, `upsell`, `parsing_link`, `finding_deal`, `comparing`, `synthesizing` |
 | `products` | `{count, items: ProductItemModel[]}` |
 | `comparison` | `{summary, table: {columns, rows: [{label, values, best_index}]}}` |
-| `clarification` | `{id, field, question, context_hint, options: [{id, label, value}], allow_custom_input}` |
+| `clarification` | `{id, field, question, context_hint, options: [{id, label, value}], allow_custom_input, skip_value}`: LLM đặt câu hỏi, tối đa 3 câu cho một nhu cầu, mỗi lượt một câu; `skip_value` là câu gửi lại khi người dùng bấm "Bỏ qua" |
 | `token` | `{content}` — từng đoạn lời tư vấn (Markdown) |
 | `suggestions` | `string[]` |
 | `done` | `{session_id, intent, recommended_product, clarification, relaxed_search, search_notes}` |

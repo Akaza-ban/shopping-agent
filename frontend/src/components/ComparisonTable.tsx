@@ -167,7 +167,7 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({ products, save
           </tr>
           <tr>
             <td className={rowLabel}>{t('Bảo hành')}</td>
-            {products.map(p => <td key={p.id} className={cell}>{p.warranty}</td>)}
+            {products.map(p => <td key={p.id} className={cell}>{p.warranty || t('Chưa rõ')}</td>)}
           </tr>
           <tr>
             <td className={rowLabel}>{t('Đổi trả')}</td>

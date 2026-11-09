@@ -139,7 +139,7 @@ export const SavedProductsView: React.FC<SavedProductsViewProps> = ({ saved, onR
               <div className="px-4 pb-3 grid grid-cols-2 gap-2 text-[11px]">
                 <div className="p-2 bg-stone-50 rounded-lg">
                   <span className="text-stone-500 block">{t('Bảo hành')}</span>
-                  <span className="font-medium text-stone-800">{p.warranty}</span>
+                  <span className="font-medium text-stone-800">{p.warranty || t('Chưa rõ')}</span>
                 </div>
                 <div className="p-2 bg-stone-50 rounded-lg">
                   <span className="text-stone-500 block">{t('Đổi trả')}</span>

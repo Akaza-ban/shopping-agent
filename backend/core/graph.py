@@ -137,7 +137,7 @@ class ShopAIAgentWorkflow:
         if state.intent == "smalltalk":
             return {}  # giữ nguyên câu hỏi làm rõ đang chờ (nếu có)
         clarification.apply_pending(state)
-        clarification.maybe_ask(state)
+        clarification.decide(state)
         return _updates(state)
 
     async def _node_ask(self, state: AgentState) -> dict[str, Any]:
@@ -186,7 +186,8 @@ class ShopAIAgentWorkflow:
             return {}
         writer = get_stream_writer()
         writer(events.status("comparing", "Đang tổng hợp bảng so sánh cấu hình, giá, bảo hành và đổi trả..."))
-        state = await self.comparator.compare(state)
+        # Sản phẩm của lượt tìm (đã lọc đúng loại hàng) hoặc của lượt trước: khỏi hỏi LLM "có cùng loại không"
+        state = await self.comparator.compare(state, trusted_same_kind=True)
         if state.comparison_table:
             writer(events.comparison(state.comparison_summary, state.comparison_table))
         return _updates(state)

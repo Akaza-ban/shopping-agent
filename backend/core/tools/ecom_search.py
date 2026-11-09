@@ -17,10 +17,11 @@ from collections.abc import Iterable
 from database.repositories import product_repository
 from integrations.platforms import PlatformAdapter, all_platforms, display_names, resolve_targets
 from integrations.platforms.errors import crawling
+from services.catalog import spec_fit
 from services.catalog.category_resolver import category_resolver, with_noun
 from services.catalog.data_processor import data_processor
 from services.catalog.enricher import product_enricher
-from services.catalog.ranker import rank_products
+from services.catalog.ranker import rank_products, verifiable_attributes
 from services.pricing import guardrails as price_guardrails
 from shared.exceptions import CrawlerError
 from shared.types import RawProduct
@@ -28,7 +29,7 @@ from shared.types import RawProduct
 from ..state import UniversalSearchCriteria
 from . import attribute_match, search_sources
 from .base import BaseTool
-from .search_sources import SearchRequest
+from .search_sources import DETAIL_BUDGET_SECONDS, SearchRequest
 
 logger = logging.getLogger("ecom_search")
 
@@ -39,8 +40,8 @@ PRICE_PHRASE_RE = re.compile(
     re.IGNORECASE,
 )
 
-DETAIL_BUDGET_SECONDS = 2.0  # thời gian tối đa chờ đọc trang chi tiết trong một lượt
 CATEGORY_BUDGET_SECONDS = 6.0  # thời gian tối đa chờ LLM quy đổi danh mục mới
+CRAWL_BUDGET_SECONDS = 5.0  # chờ các sàn tối đa bấy nhiêu giây (nếu đã có sàn trả kết quả); sàn chậm chạy tiếp ở nền
 
 
 def _interleave(per_platform: Iterable[list[RawProduct]], cap: int) -> list[RawProduct]:
@@ -50,6 +51,38 @@ def _interleave(per_platform: Iterable[list[RawProduct]], cap: int) -> list[RawP
     for i in range(max((len(items) for items in per_platform), default=0)):
         out += [items[i] for items in per_platform if i < len(items)]
     return out[:cap]
+
+
+def _has_items(task: asyncio.Task) -> bool:
+    return not task.cancelled() and task.exception() is None and bool(task.result())
+
+
+async def _wait_for_results(tasks: list[asyncio.Task], budget: float) -> None:
+    """Chờ mọi sàn tối đa `budget` giây; hết giờ mà chưa sàn nào có kết quả thì chờ tiếp tới khi có (hoặc hết sàn)."""
+    done, pending = await asyncio.wait(tasks, timeout=budget)
+    while pending and not any(_has_items(t) for t in done):
+        more, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        done |= more
+
+
+def _platform_result(p: PlatformAdapter, task: asyncio.Task) -> list[RawProduct]:
+    """Kết quả của một sàn đã chạy xong; lỗi thì ghi log và trả danh sách rỗng."""
+    if task.cancelled():
+        return []
+    error = task.exception()
+    if isinstance(error, CrawlerError):
+        logger.warning(f"Lỗi khi tìm kiếm: {error}")
+    elif error is not None:  # lỗi lập trình: ghi đủ traceback, các sàn khác vẫn chạy tiếp
+        logger.error(f"[{p.name}] Lỗi không mong đợi khi tìm kiếm", exc_info=error)
+    return [] if error is not None else (task.result() or [])
+
+
+async def _store_late_results(late: list[PlatformAdapter], tasks: dict[str, asyncio.Task]) -> None:
+    """Chờ các sàn chậm xong (ở nền) rồi nạp kết quả vào kho RAG: lần hỏi sau có sẵn, khỏi cào lại."""
+    await asyncio.wait([tasks[p.id] for p in late])
+    items = [item for p in late for item in _platform_result(p, tasks[p.id])]
+    if items:
+        await search_sources.store_in_rag(data_processor.process_product_list(items))
 
 
 class EcomSearchTool(BaseTool):
@@ -130,11 +163,19 @@ class EcomSearchTool(BaseTool):
         notes: list[str],
         limit: int,
         detail_budget: float = DETAIL_BUDGET_SECONDS,
+        screened: bool = False,
     ) -> list[RawProduct]:
-        """Bước chung cho mọi nguồn: đọc trang chi tiết, loại giá bất thường, đối chiếu thông số, xếp hạng, cắt `limit`."""
+        """Bước chung cho mọi nguồn: đọc trang chi tiết, loại giá bất thường, đối chiếu thông số, xếp hạng, cắt `limit`.
+
+        `screened`: nguồn đã đọc trang chi tiết và chấm mức hợp nhu cầu trong lúc lọc (search_sources.screen)
+        -> không làm lại hai việc đó.
+        """
         if not products:
             return products
-        products = await product_enricher.enrich(products, max_items=max(limit * 2, 8), budget_seconds=detail_budget)
+        if not screened:
+            products = await product_enricher.enrich(
+                products, max_items=max(limit * 2, 8), budget_seconds=detail_budget
+            )
         references = await product_repository.get_reference_prices([p.get("name", "") for p in products])
         products, rejected = price_guardrails.screen_products(products, references)
         if rejected:
@@ -143,6 +184,9 @@ class EcomSearchTool(BaseTool):
             )
         products = attribute_match.annotate(products, criteria, notes)
         if criteria:
+            if not screened:
+                # Đường cache (đã lọc từ lượt trước): chỉ chấm mức hợp nhu cầu; RAG / cào đã chấm trong screen()
+                products = await spec_fit.assess(products, criteria, verifiable_attributes(criteria))
             products, rank_notes = rank_products(products, criteria)
             notes.extend(rank_notes)
         freshness = attribute_match.freshness_note(products[:limit])
@@ -189,27 +233,50 @@ class EcomSearchTool(BaseTool):
         return list(self.platforms)
 
     @staticmethod
-    async def _search_platforms(targets, query, criteria, cap, notes, user_query) -> dict[str, list[RawProduct]]:
-        """Gọi song song các sàn; sàn lỗi trả về danh sách rỗng, không làm hỏng cả lượt."""
+    async def _search_platforms(
+        targets, query, criteria, cap, notes, user_query, budget: float = CRAWL_BUDGET_SECONDS
+    ) -> dict[str, list[RawProduct]]:
+        """Gọi song song các sàn; sàn lỗi trả về danh sách rỗng, không làm hỏng cả lượt.
+
+        Hết `budget` giây mà đã có sàn trả kết quả thì đi tiếp với các sàn đã xong (một sàn chậm không kéo cả lượt
+        chờ theo); sàn chậm chạy tiếp ở nền và nạp kết quả vào kho RAG cho lần hỏi sau.
+        """
+        platform_notes: dict[str, list[str]] = {p.id: [] for p in targets}
 
         async def search_one(p: PlatformAdapter) -> list[RawProduct]:
             with crawling(p.name):
-                return await p.search(query, criteria, cap, notes, user_query=user_query)
+                return await p.search(query, criteria, cap, platform_notes[p.id], user_query=user_query)
 
-        results = await asyncio.gather(*(search_one(p) for p in targets), return_exceptions=True)
+        tasks = {p.id: asyncio.create_task(search_one(p)) for p in targets}
+        try:
+            await _wait_for_results(list(tasks.values()), budget)
+        except asyncio.CancelledError:  # đã có kết quả từ kho RAG: bỏ việc cào
+            for task in tasks.values():
+                task.cancel()
+            raise
+
         per_platform: dict[str, list[RawProduct]] = {}
-        for p, res in zip(targets, results, strict=True):
-            if isinstance(res, CrawlerError):
-                logger.warning(f"Lỗi khi tìm kiếm: {res}")
-            elif isinstance(res, Exception):  # lỗi lập trình: ghi đủ traceback, các sàn khác vẫn chạy tiếp
-                logger.error(f"[{p.name}] Lỗi không mong đợi khi tìm kiếm", exc_info=res)
-            per_platform[p.id] = res if isinstance(res, list) else []
+        late = [p for p in targets if not tasks[p.id].done()]
+        for p in targets:
+            if tasks[p.id].done():
+                per_platform[p.id] = _platform_result(p, tasks[p.id])
+                notes.extend(platform_notes[p.id])
+        if late:
+            names = ", ".join(p.name for p in late)
+            notes.append(f"{names} phản hồi chậm nên chưa có trong kết quả lượt này.")
+            logger.info(f"[Crawl] Hết {budget}s: đi tiếp không chờ {names}; kết quả của sàn chậm sẽ nạp vào kho RAG")
+            search_sources.keep_in_background(asyncio.create_task(_store_late_results(late, tasks)))
         return per_platform
 
     async def _apply_categories(
         self, per_platform: dict[str, list[RawProduct]], criteria: UniversalSearchCriteria | None
     ) -> None:
-        """Gán ngành hàng theo danh mục của sàn (CategoryResolver) và bỏ phụ kiện khi người dùng không tìm phụ kiện."""
+        """Gán ngành hàng theo danh mục của sàn (CategoryResolver) và bỏ phụ kiện khi người dùng không tìm phụ kiện.
+
+        Nhiều món là sản phẩm chính với người mua nhưng sàn xếp vào "Phụ kiện" (bàn phím, chuột, sạc dự phòng...):
+        nếu bỏ phụ kiện làm mất SẠCH kết quả thì giữ lại, để bước LLM lọc + chấm (search_sources.screen) xét theo
+        đúng câu hỏi thay vì báo "không tìm thấy".
+        """
         items = [p for lst in per_platform.values() for p in lst]
         if not items:
             return
@@ -220,14 +287,21 @@ class EcomSearchTool(BaseTool):
             search_sources.keep_in_background(task)
             logger.info("Quy đổi danh mục mới chưa xong, tiếp tục ở nền; sản phẩm lượt này giữ ngành hàng tạm")
         wants_accessory = bool(criteria and criteria.is_accessory)
+        main: dict[str, list[RawProduct]] = {}
+        with_accessories: dict[str, list[RawProduct]] = {}
         for pid, lst in per_platform.items():
-            kept = []
+            main[pid], with_accessories[pid] = [], []
             for p in lst:
                 mapping = category_resolver.lookup(p)
                 if mapping is None:
-                    kept.append(p)  # chưa rõ: để bộ lọc ngữ nghĩa phía sau quyết định
-                    continue
-                if mapping.is_accessory and not wants_accessory:
-                    continue
-                kept.append({**p, "category": mapping.category, "name": with_noun(p.get("name", ""), mapping.noun)})
-            per_platform[pid] = kept
+                    item = p  # chưa rõ: để bước LLM lọc phía sau quyết định
+                else:
+                    item = {**p, "category": mapping.category, "name": with_noun(p.get("name", ""), mapping.noun)}
+                with_accessories[pid].append(item)
+                if mapping is None or wants_accessory or not mapping.is_accessory:
+                    main[pid].append(item)
+        if any(main.values()) or not any(with_accessories.values()):
+            per_platform.update(main)
+            return
+        logger.info("Mọi kết quả đều thuộc danh mục phụ kiện của sàn: giữ lại để LLM xét theo câu hỏi")
+        per_platform.update(with_accessories)

@@ -6,6 +6,7 @@ import httpx
 from bs4 import BeautifulSoup, Tag
 
 from integrations.platforms.errors import CRAWL_ERRORS
+from integrations.tls import ssl_context
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -105,7 +106,7 @@ async def fetch_document(source: dict[str, str], client: httpx.AsyncClient) -> d
 async def fetch_all(platform_ids: list[str] | None = None) -> dict[str, list[dict[str, object]]]:
     """{platform_id: [tài liệu]}; nền tảng lỗi trả về danh sách rỗng kèm khóa 'error'."""
     out: dict[str, list[dict[str, object]]] = {}
-    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=25) as client:
+    async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=25, verify=ssl_context()) as client:
         for pid, sources in POLICY_SOURCES.items():
             if platform_ids and pid not in platform_ids:
                 continue
