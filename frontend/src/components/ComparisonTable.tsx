@@ -2,7 +2,7 @@ import React from 'react';
 import { Bookmark, BookmarkCheck, ExternalLink, Star, Trophy } from 'lucide-react';
 import { ComparisonResult, ProductItem } from '../types.ts';
 import { getPlatformName, getPolicy } from '../services/shoppingService.ts';
-import { currentLocale, t } from '../i18n/index.tsx';
+import { formatVnd, t } from '../i18n/index.tsx';
 
 interface ComparisonTableProps {
   products: ProductItem[];
@@ -111,9 +111,9 @@ export const ComparisonTable: React.FC<ComparisonTableProps> = ({ products, save
             {products.map(p => (
               <td key={p.id} className={cell}>
                 <div className={`font-mono font-bold ${p.currentPrice === lowestPrice ? 'text-emerald-700' : 'text-stone-900'}`}>
-                  {p.currentPrice.toLocaleString(currentLocale())} ₫
+                  {formatVnd(p.currentPrice)}
                 </div>
-                <div className="font-mono text-[10px] text-stone-400 line-through">{p.originalPrice.toLocaleString(currentLocale())} ₫</div>
+                <div className="font-mono text-[10px] text-stone-400 line-through">{formatVnd(p.originalPrice)}</div>
                 {p.currentPrice === lowestPrice && <div className="text-[10px] font-semibold text-emerald-700">{t('Giá thấp nhất')}</div>}
               </td>
             ))}

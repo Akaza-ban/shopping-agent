@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { CheckCircle2, Loader2, UserRound, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth.tsx';
 import { changePassword, updateProfile } from '../services/agentApi.ts';
@@ -15,23 +15,22 @@ const inputClass =
 
 // Thông tin tài khoản: đổi tên hiển thị và đổi mật khẩu
 export const AccountModal: React.FC<AccountModalProps> = ({ isOpen, onClose }) => {
+  const { user } = useAuth();
+  if (!isOpen || !user) return null;
+  // Mỗi lần mở là một form mới, khởi tạo từ tài khoản hiện tại
+  return <AccountForm initialName={user.displayName} onClose={onClose} />;
+};
+
+const AccountForm: React.FC<{ initialName: string; onClose: () => void }> = ({ initialName, onClose }) => {
   const { user, setUser } = useAuth();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState<'profile' | 'password' | null>(null);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  useEffect(() => {
-    if (isOpen && user) {
-      setName(user.displayName);
-      setCurrent(''); setNext(''); setConfirm('');
-      setMessage(null);
-    }
-  }, [isOpen]);
-
-  if (!isOpen || !user) return null;
+  if (!user) return null;
 
   const run = async (kind: 'profile' | 'password', action: () => Promise<string>) => {
     setBusy(kind);

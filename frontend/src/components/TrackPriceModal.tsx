@@ -3,7 +3,7 @@ import { BellRing, Loader2, X } from 'lucide-react';
 import { PriceAlert, PricePoint, ProductItem } from '../types.ts';
 import { getPriceHistory } from '../services/agentApi.ts';
 import { PriceHistoryChart } from './PriceHistoryChart.tsx';
-import { currentLocale, t } from '../i18n/index.tsx';
+import { currentLocale, formatVnd, t } from '../i18n/index.tsx';
 
 interface TrackPriceModalProps {
   product: ProductItem | null;
@@ -14,30 +14,34 @@ interface TrackPriceModalProps {
 }
 
 const DISCOUNT_PRESETS = [5, 10, 15, 20];
-const formatVnd = (n: number) => `${Math.round(n).toLocaleString(currentLocale())} ₫`;
 // Làm tròn xuống bội số 10.000 đ cho dễ đọc
 const roundPrice = (n: number) => Math.floor(n / 10_000) * 10_000;
 
-export const TrackPriceModal: React.FC<TrackPriceModalProps> = ({ product, existingAlert, onCreate, onDelete, onClose }) => {
+export const TrackPriceModal: React.FC<TrackPriceModalProps> = props => {
+  if (!props.product) return null;
+  // key: mở cho sản phẩm khác là một form mới (giá mục tiêu, lịch sử giá của sản phẩm đó)
+  return <TrackPriceForm key={props.product.id} {...props} product={props.product} />;
+};
+
+const TrackPriceForm: React.FC<TrackPriceModalProps & { product: ProductItem }> = ({ product, existingAlert, onCreate, onDelete, onClose }) => {
   const [history, setHistory] = useState<PricePoint[] | null>(null);
   const [historyError, setHistoryError] = useState('');
-  const [target, setTarget] = useState('');
+  const [target, setTarget] = useState(() => String(existingAlert?.targetPrice ?? roundPrice(product.currentPrice * 0.9)));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!product) return;
-    setHistory(null);
-    setHistoryError('');
-    setError('');
-    setTarget(String(existingAlert?.targetPrice ?? roundPrice(product.currentPrice * 0.9)));
-    getPriceHistory(product.id).then(setHistory).catch(err => {
-      setHistory([]);
-      setHistoryError(err instanceof Error ? err.message : String(err));
-    });
-  }, [product?.id]);
+    let cancelled = false;
+    getPriceHistory(product.id)
+      .then(points => { if (!cancelled) setHistory(points); })
+      .catch(err => {
+        if (cancelled) return;
+        setHistory([]);
+        setHistoryError(err instanceof Error ? err.message : String(err));
+      });
+    return () => { cancelled = true; };
+  }, [product.id]);
 
-  if (!product) return null;
   const targetValue = Number(target.replace(/\D/g, ''));
   const valid = targetValue > 0 && targetValue < product.currentPrice;
 

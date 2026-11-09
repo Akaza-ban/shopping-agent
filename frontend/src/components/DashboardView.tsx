@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, BellRing, Bookmark, History, MessageSquareText, Search, ShieldCheck, Store, Table2 } from 'lucide-react';
 import { NavigationTab, PriceAlert, SavedProduct, SearchRecord } from '../types.ts';
 import { getPlatformName } from '../services/shoppingService.ts';
-import { currentLocale, t } from '../i18n/index.tsx';
+import { formatVnd, t } from '../i18n/index.tsx';
 import { useAuth } from '../hooks/useAuth.tsx';
 
 interface DashboardViewProps {
@@ -155,7 +155,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <div className="flex flex-wrap items-center gap-x-2 mt-1 text-[11px] text-stone-600">
                             <span>{t('Hạng 1:')} <strong className="text-stone-800">{top.name}</strong></span>
                             <span>·</span>
-                            <span className="font-mono">{top.currentPrice.toLocaleString(currentLocale())} ₫</span>
+                            <span className="font-mono">{formatVnd(top.currentPrice)}</span>
                           </div>
                         )}
                       </div>
@@ -199,7 +199,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-stone-900 truncate">{p.name}</div>
                     <div className="text-[11px] text-stone-500">
-                      <span className="font-mono text-stone-800">{p.currentPrice.toLocaleString(currentLocale())} ₫</span> · {getPlatformName(p.platformId)}
+                      <span className="font-mono text-stone-800">{formatVnd(p.currentPrice)}</span> · {getPlatformName(p.platformId)}
                     </div>
                   </div>
                 </div>

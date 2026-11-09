@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { BellRing, CheckCircle2, ExternalLink, ImageOff, LineChart, Loader2, RefreshCw, Trash2, Eye, AlertTriangle, PackageX, Hourglass, ListChecks } from 'lucide-react';
 import { PriceAlert, PriceCheck, PricePoint } from '../types.ts';
 import { getAlertChecks, getPriceHistory, parseServerDate } from '../services/agentApi.ts';
-import { currentLocale, msg, t } from '../i18n/index.tsx';
+import { currentLocale, formatVnd, msg, t } from '../i18n/index.tsx';
 import { PriceHistoryChart } from './PriceHistoryChart.tsx';
 
 interface PriceAlertsViewProps {
@@ -14,7 +14,7 @@ interface PriceAlertsViewProps {
   onGoSearch: () => void;
 }
 
-const formatVnd = (n: number | null | undefined) => (n ? `${Math.round(n).toLocaleString(currentLocale())} ₫` : '—');
+const formatOptionalVnd = (n: number | null | undefined) => (n ? formatVnd(n) : '—');
 const formatWhen = (iso: string | null) =>
   iso ? parseServerDate(iso).toLocaleString(currentLocale(), { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : t('chưa kiểm tra');
 
@@ -49,7 +49,7 @@ const ConditionBadges: React.FC<{ alert: PriceAlert }> = ({ alert }) => (
     {alert.status === 'watching' && alert.pendingPrice != null && (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-200"
         title={t('Giá đọc được biến động bất thường; hệ thống chờ lần đọc sau khớp mới ghi nhận')}>
-        <Hourglass className="w-3.5 h-3.5" /> {t('Chờ xác nhận giá {price}', { price: formatVnd(alert.pendingPrice) })}
+        <Hourglass className="w-3.5 h-3.5" /> {t('Chờ xác nhận giá {price}', { price: formatOptionalVnd(alert.pendingPrice) })}
       </span>
     )}
   </>
@@ -78,7 +78,7 @@ const CheckLog: React.FC<{ checks: PriceCheck[] | null }> = ({ checks }) => {
               <td className={`py-1 pr-3 font-semibold whitespace-nowrap ${CHECK_OUTCOME[c.outcome]?.className ?? ''}`}>
                 {CHECK_OUTCOME[c.outcome] ? t(CHECK_OUTCOME[c.outcome].label) : c.outcome}
               </td>
-              <td className="py-1 pr-3 font-mono whitespace-nowrap">{formatVnd(c.price)}</td>
+              <td className="py-1 pr-3 font-mono whitespace-nowrap">{formatOptionalVnd(c.price)}</td>
               <td className="py-1 text-stone-600">{c.note || '—'}</td>
             </tr>
           ))}
@@ -135,13 +135,13 @@ const AlertRow: React.FC<{
           </div>
           <div className="text-[11px] text-stone-500">{alert.platformName || alert.platform} · {t('Kiểm tra lần cuối: {when}', { when: formatWhen(alert.lastCheckedAt) })}</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
-            <div><div className="text-stone-500">{t('Giá mong muốn')}</div><div className="font-mono font-bold text-stone-900">{formatVnd(alert.targetPrice)}</div></div>
-            <div><div className="text-stone-500">{t('Giá gần nhất')}</div><div className="font-mono font-bold text-stone-900">{formatVnd(alert.lastPrice)}</div></div>
-            <div><div className="text-stone-500">{t('Thấp nhất đã thấy')}</div><div className="font-mono text-stone-800">{formatVnd(alert.lowestPrice)}</div></div>
-            <div><div className="text-stone-500">{t('Lúc bắt đầu')}</div><div className="font-mono text-stone-800">{formatVnd(alert.initialPrice)}</div></div>
+            <div><div className="text-stone-500">{t('Giá mong muốn')}</div><div className="font-mono font-bold text-stone-900">{formatOptionalVnd(alert.targetPrice)}</div></div>
+            <div><div className="text-stone-500">{t('Giá gần nhất')}</div><div className="font-mono font-bold text-stone-900">{formatOptionalVnd(alert.lastPrice)}</div></div>
+            <div><div className="text-stone-500">{t('Thấp nhất đã thấy')}</div><div className="font-mono text-stone-800">{formatOptionalVnd(alert.lowestPrice)}</div></div>
+            <div><div className="text-stone-500">{t('Lúc bắt đầu')}</div><div className="font-mono text-stone-800">{formatOptionalVnd(alert.initialPrice)}</div></div>
           </div>
           {alert.status === 'watching' && gap > 0 && (
-            <div className="text-[11px] text-stone-600">{t('Còn cách mức mong muốn')} <strong className="text-stone-900">{formatVnd(gap)}</strong></div>
+            <div className="text-[11px] text-stone-600">{t('Còn cách mức mong muốn')} <strong className="text-stone-900">{formatOptionalVnd(gap)}</strong></div>
           )}
           {alert.lastNote && (
             <div className={`text-[11px] flex items-start gap-1 ${alert.status === 'triggered' ? 'text-emerald-800' : 'text-stone-600'}`}>

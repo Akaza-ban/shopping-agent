@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityItem, ChatRequest, NavigationTab, PlatformPolicy, PolicyRequest, PriceAlert, ProductItem, SavedProduct, SearchRecord } from './types.ts';
 import { HelpKind, Sidebar } from './components/Sidebar.tsx';
 import { HelpRequestModal } from './components/HelpRequestModal.tsx';
@@ -17,7 +17,7 @@ import { FeedbackInboxView } from './components/FeedbackInboxView.tsx';
 import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './hooks/useAuth.tsx';
 import { PreferencesProvider, usePreferences } from './hooks/usePreferences.tsx';
-import { I18nProvider, currentLocale, t, useI18n } from './i18n/index.tsx';
+import { I18nProvider, currentLocale, formatVnd, t, useI18n } from './i18n/index.tsx';
 import { PreferencesModal } from './components/PreferencesModal.tsx';
 import { useSyncedState } from './hooks/useSyncedState.ts';
 import { AuthView } from './components/AuthView.tsx';
@@ -30,7 +30,6 @@ const MAX_HISTORY = 20;
 
 const formatNow = () =>
   new Date().toLocaleString(currentLocale(), { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-const vnd = (n: number) => `${n.toLocaleString(currentLocale())} ₫`;
 
 export default function App() {
   return (
@@ -150,7 +149,7 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     logActivity({
       type: 'save',
       title: t('Lưu sản phẩm: {name}', { name: product.name }),
-      detail: `${vnd(product.currentPrice)} · ${getPlatformName(product.platformId)}`,
+      detail: `${formatVnd(product.currentPrice)} · ${getPlatformName(product.platformId)}`,
       targetTab: 'saved'
     });
   };
@@ -208,7 +207,7 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     logActivity({
       type: 'alert',
       title: t('Đạt giá mong muốn: {name}', { name: alert.productName }),
-      detail: t('{price} (mục tiêu {target}) · {platform}', { price: vnd(alert.lastPrice), target: vnd(alert.targetPrice), platform: alert.platformName }),
+      detail: t('{price} (mục tiêu {target}) · {platform}', { price: formatVnd(alert.lastPrice), target: formatVnd(alert.targetPrice), platform: alert.platformName }),
       targetTab: 'alerts'
     })
   );
@@ -220,7 +219,7 @@ function ShoppingApp({ userId, isAdmin }: { userId: string; isAdmin: boolean }) 
     logActivity({
       type: 'alert',
       title: t('Theo dõi giá: {name}', { name: product.name }),
-      detail: t('Báo khi giá ≤ {target} (hiện tại {price})', { target: vnd(targetPrice), price: vnd(product.currentPrice) }),
+      detail: t('Báo khi giá ≤ {target} (hiện tại {price})', { target: formatVnd(targetPrice), price: formatVnd(product.currentPrice) }),
       targetTab: 'alerts'
     });
   };

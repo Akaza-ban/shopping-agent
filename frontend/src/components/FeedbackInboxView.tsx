@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useEffectEvent, useState } from 'react';
 import { AlertCircle, CheckCircle2, Inbox, LifeBuoy, Loader2, Mail, MessageSquarePlus, Phone, RefreshCw } from 'lucide-react';
 import { FeedbackCounts, FeedbackItem, FeedbackStatus } from '../types.ts';
 import { listFeedback, parseServerDate, updateFeedback } from '../services/agentApi.ts';
@@ -9,6 +9,8 @@ interface FeedbackInboxViewProps {
 }
 
 type Filter = FeedbackStatus | 'all';
+
+const fetchFeedback = (status: Filter) => listFeedback(status === 'all' ? undefined : status);
 
 const STATUS_META: Record<FeedbackStatus, { label: string; className: string }> = {
   new: { label: msg('Mới'), className: 'bg-amber-50 text-amber-800 ring-amber-200' },
@@ -28,22 +30,44 @@ export const FeedbackInboxView: React.FC<FeedbackInboxViewProps> = ({ onCountsCh
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = async (status: Filter = filter) => {
+  const applyResult = (res: Awaited<ReturnType<typeof listFeedback>>) => {
+    setItems(res.items);
+    setCounts(res.counts);
+    onCountsChange(res.counts);
+  };
+  const showError = (e: unknown) => setError(e instanceof Error ? e.message : t('Không tải được danh sách.'));
+
+  // Tải lại theo bộ lọc đang chọn (nút Làm mới, sau khi đổi trạng thái)
+  const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await listFeedback(status === 'all' ? undefined : status);
-      setItems(res.items);
-      setCounts(res.counts);
-      onCountsChange(res.counts);
+      applyResult(await fetchFeedback(filter));
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('Không tải được danh sách.'));
+      showError(e);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { void load(filter); }, [filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tải theo bộ lọc mỗi khi đổi bộ lọc; bỏ kết quả của bộ lọc cũ nếu về muộn
+  const onFilterLoaded = useEffectEvent(applyResult);
+  const onFilterFailed = useEffectEvent(showError);
+  useEffect(() => {
+    let cancelled = false;
+    fetchFeedback(filter)
+      .then(res => { if (!cancelled) onFilterLoaded(res); })
+      .catch(e => { if (!cancelled) onFilterFailed(e); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [filter]);
+
+  const changeFilter = (next: Filter) => {
+    if (next === filter) return;
+    setFilter(next);
+    setLoading(true);
+    setError('');
+  };
 
   // Đổi trạng thái: tải lại để danh sách theo bộ lọc và số đếm luôn khớp server
   const handleUpdate = async (id: string, changes: { status?: FeedbackStatus; admin_note?: string }) => {
@@ -81,7 +105,7 @@ export const FeedbackInboxView: React.FC<FeedbackInboxViewProps> = ({ onCountsCh
         {filters.map(f => (
           <button
             key={f.id}
-            onClick={() => setFilter(f.id)}
+            onClick={() => changeFilter(f.id)}
             className={`px-3 py-1.5 rounded-full border text-xs transition-colors ${
               filter === f.id ? 'bg-stone-900 text-amber-50 border-stone-900' : 'border-stone-200 text-stone-700 hover:border-stone-400 bg-white'
             }`}
@@ -128,7 +152,12 @@ const FeedbackCard: React.FC<{
   const isSupport = item.kind === 'support';
   const KindIcon = isSupport ? LifeBuoy : MessageSquarePlus;
 
-  useEffect(() => setNote(item.adminNote), [item.adminNote]);
+  // Ghi chú trên server đổi (VD sau khi lưu) -> hiện bản mới; tính ngay lúc render thay vì trong effect
+  const [syncedNote, setSyncedNote] = useState(item.adminNote);
+  if (item.adminNote !== syncedNote) {
+    setSyncedNote(item.adminNote);
+    setNote(item.adminNote);
+  }
 
   const run = async (changes: { status?: FeedbackStatus; admin_note?: string }) => {
     setBusy(true);

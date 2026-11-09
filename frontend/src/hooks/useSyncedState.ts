@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { getUserData, putUserData, UserDataKey } from '../services/agentApi.ts';
 
 const SAVE_DELAY_MS = 800;
@@ -55,14 +55,20 @@ export function useSyncedState<T>(userId: string, key: UserDataKey, initial: T) 
     return () => { cancelled = true; };
   }, [userId, key]);
 
+  // Chỉ lưu khi giá trị đổi; khóa lưu (tài khoản, loại dữ liệu) đọc lúc lưu, đổi khóa không tự ghi giá trị cũ sang khóa mới
+  const saveLocal = useEffectEvent((next: T) => writeLocal(cacheKey, next));
+  const saveRemote = useEffectEvent((next: T) => {
+    putUserData(key, next).catch(() => undefined);
+  });
+
   useEffect(() => {
-    writeLocal(cacheKey, value);
+    saveLocal(value);
     if (!loaded) return;
     if (skipNextSave.current) {
       skipNextSave.current = false;
       return;
     }
-    const timer = setTimeout(() => { putUserData(key, value).catch(() => undefined); }, SAVE_DELAY_MS);
+    const timer = setTimeout(() => saveRemote(value), SAVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [value, loaded]);
 

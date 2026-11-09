@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { PriceAlert, ProductItem } from '../types.ts';
 import { checkAlerts, createAlert, deleteAlert, listAlerts } from '../services/agentApi.ts';
 
@@ -24,9 +24,13 @@ export function usePriceAlerts(onTriggered: (alert: PriceAlert) => void) {
 
   const refresh = () => listAlerts().then(apply).catch(err => setLoadError(err instanceof Error ? err.message : String(err)));
 
-  useEffect(() => {
+  // Tải khi mở và đọc lại định kỳ; refresh luôn dùng onTriggered mới nhất mà không phải đặt lại bộ hẹn giờ
+  const onRefreshTick = useEffectEvent(() => {
     void refresh();
-    const timer = setInterval(refresh, REFRESH_MS);
+  });
+  useEffect(() => {
+    onRefreshTick();
+    const timer = setInterval(() => onRefreshTick(), REFRESH_MS);
     return () => clearInterval(timer);
   }, []);
 

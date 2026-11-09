@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { getUserData, putUserData } from '../services/agentApi.ts';
 import { useAuth } from './useAuth.tsx';
-import { Language } from '../i18n/index.tsx';
+import { Language, setCurrentLanguage } from '../i18n/index.tsx';
 
 /** Cài đặt người dùng (giao diện, ngôn ngữ): lưu trên máy và đồng bộ theo tài khoản khi đã đăng nhập. */
 export type ThemeMode = 'light' | 'dark' | 'auto';
@@ -35,6 +35,9 @@ const readLocal = (): Preferences => {
   } catch { /* bỏ qua */ }
   return defaults();
 };
+
+// Ngôn ngữ cho lần render đầu tiên
+setCurrentLanguage(readLocal().language);
 
 const minutes = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -96,7 +99,10 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     getUserData<Partial<Preferences>>('preferences')
       .then(server => {
         if (cancelled) return;
-        if (server && !dirty.current) setPreferences(prev => ({ ...prev, ...server }));
+        if (server && !dirty.current) {
+          if (server.language) setCurrentLanguage(server.language);
+          setPreferences(prev => ({ ...prev, ...server }));
+        }
         else putUserData('preferences', preferences).catch(() => undefined);
       })
       .catch(() => undefined)
@@ -120,6 +126,7 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     theme,
     update: patch => {
       dirty.current = true;
+      if (patch.language) setCurrentLanguage(patch.language);
       setPreferences(prev => ({ ...prev, ...patch }));
     },
     toggleTheme: () => {

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { ArrowRight, BellRing, Bookmark, ExternalLink, Search, Sparkles, Star, Trash2 } from 'lucide-react';
 import { ProductItem, SavedProduct } from '../types.ts';
 import { getPlatformName, getPolicy } from '../services/shoppingService.ts';
-import { currentLocale, t } from '../i18n/index.tsx';
+import { MAX_COMPARE_PRODUCTS } from '../services/agentApi.ts';
+import { formatVnd, t } from '../i18n/index.tsx';
 
 interface SavedProductsViewProps {
   saved: SavedProduct[];
@@ -25,8 +26,14 @@ export const SavedProductsView: React.FC<SavedProductsViewProps> = ({ saved, onR
   );
   const selectedProducts = saved.filter(s => selectedIds.includes(s.product.id)).map(s => s.product);
 
+  const limitReached = selectedProducts.length >= MAX_COMPARE_PRODUCTS;
+
+  // Mỗi lần so sánh tối đa MAX_COMPARE_PRODUCTS sản phẩm (backend từ chối nếu nhiều hơn)
   const toggleSelect = (id: string) =>
-    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+    setSelectedIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      return prev.length >= MAX_COMPARE_PRODUCTS ? prev : [...prev, id];
+    });
 
   const handleRemove = (id: string) => {
     setSelectedIds(prev => prev.filter(x => x !== id));
@@ -64,6 +71,11 @@ export const SavedProductsView: React.FC<SavedProductsViewProps> = ({ saved, onR
           <p className="text-xs text-stone-600 mt-1">
             {t('Các sản phẩm bạn đã lưu từ đề xuất của AI. Chọn từ 2 sản phẩm trở lên để nhờ AI so sánh trong khung chat.')}
           </p>
+          {limitReached && (
+            <p className="text-xs text-amber-800 mt-1">
+              {t('Đã chọn tối đa {max} sản phẩm cho một lần so sánh.', { max: MAX_COMPARE_PRODUCTS })}
+            </p>
+          )}
         </div>
         <button
           onClick={() => onCompare(selectedProducts)}
@@ -106,13 +118,16 @@ export const SavedProductsView: React.FC<SavedProductsViewProps> = ({ saved, onR
                       type="checkbox"
                       checked={selected}
                       onChange={() => toggleSelect(p.id)}
-                      className="mt-0.5 rounded text-stone-900 focus:ring-stone-900 shrink-0"
-                      title={t('Chọn để so sánh')}
+                      disabled={!selected && limitReached}
+                      className="mt-0.5 rounded text-stone-900 focus:ring-stone-900 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={!selected && limitReached
+                        ? t('Đã chọn tối đa {max} sản phẩm cho một lần so sánh.', { max: MAX_COMPARE_PRODUCTS })
+                        : t('Chọn để so sánh')}
                     />
                   </div>
                   <div className="text-[11px] text-stone-500">{p.retailer} · {getPlatformName(p.platformId)}</div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm text-stone-900">{p.currentPrice.toLocaleString(currentLocale())} ₫</span>
+                    <span className="font-mono font-bold text-sm text-stone-900">{formatVnd(p.currentPrice)}</span>
                     <span className="flex items-center gap-0.5 text-[11px] text-stone-600">
                       <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
                       {p.rating > 0 ? p.rating : t('Chưa có đánh giá')}

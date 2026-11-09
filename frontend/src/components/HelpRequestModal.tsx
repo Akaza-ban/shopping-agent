@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertCircle, CheckCircle2, LifeBuoy, Loader2, MessageSquarePlus, X } from 'lucide-react';
 import type { HelpKind } from './Sidebar.tsx';
 import { msg, t } from '../i18n/index.tsx';
@@ -26,25 +26,19 @@ const COPY: Record<HelpKind, { title: string; icon: React.ElementType; placehold
 
 // Góp ý / yêu cầu hỗ trợ: gửi lên server cho quản trị viên xử lý
 export const HelpRequestModal: React.FC<HelpRequestModalProps> = ({ kind, onSubmit, onClose }) => {
-  const [topic, setTopic] = useState('');
+  if (!kind) return null;
+  // key: mở lại hoặc đổi loại yêu cầu là một form mới
+  return <HelpRequestForm key={kind} kind={kind} onSubmit={onSubmit} onClose={onClose} />;
+};
+
+const HelpRequestForm: React.FC<HelpRequestModalProps & { kind: HelpKind }> = ({ kind, onSubmit, onClose }) => {
+  const [topic, setTopic] = useState(COPY[kind].topics[0]);
   const [content, setContent] = useState('');
   const [contact, setContact] = useState('');
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (kind) {
-      setTopic(COPY[kind].topics[0]);
-      setContent('');
-      setContact('');
-      setSent(false);
-      setSending(false);
-      setError('');
-    }
-  }, [kind]);
-
-  if (!kind) return null;
   const { title, icon: Icon, placeholder, topics } = COPY[kind];
 
   const submit = async () => {

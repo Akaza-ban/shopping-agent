@@ -16,20 +16,24 @@ interface PolicyDrawerProps {
 // Ngăn trượt trong khung chat: chính sách của đúng nơi bán sản phẩm, không phải chuyển sang tab khác
 export const PolicyDrawer: React.FC<PolicyDrawerProps> = ({ product, onClose, onOpenFull }) => {
   const [scenario, setScenario] = useState<PolicyScenario | null>(null);
-  const [result, setResult] = useState<PolicyLookupResult | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Kết quả gắn với đúng yêu cầu đã gửi: đổi sản phẩm / tình huống -> đang tải cho tới khi có kết quả mới
+  const requestKey = [product.platformId, product.name, scenario ?? ''].join('|');
+  const [settled, setSettled] = useState<{ key: string; result: PolicyLookupResult | null; error: string | null } | null>(null);
+  const isLoading = settled?.key !== requestKey;
+  const result = isLoading ? null : settled.result;
+  const error = isLoading ? null : settled.error;
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
-    setError(null);
     lookupPolicies(product.name, [product.platformId], 'all', [product.platformId], scenario)
-      .then(r => { if (!cancelled) setResult(r); })
-      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : t('Không tra cứu được chính sách, vui lòng thử lại.')); })
-      .finally(() => { if (!cancelled) setIsLoading(false); });
+      .then(r => { if (!cancelled) setSettled({ key: requestKey, result: r, error: null }); })
+      .catch(err => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : t('Không tra cứu được chính sách, vui lòng thử lại.');
+        setSettled({ key: requestKey, result: null, error: message });
+      });
     return () => { cancelled = true; };
-  }, [product.name, product.platformId, scenario]);
+  }, [product.name, product.platformId, scenario, requestKey]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();

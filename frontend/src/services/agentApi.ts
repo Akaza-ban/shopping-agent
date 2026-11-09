@@ -2,6 +2,10 @@ import { BackendProduct, ClarificationQuestion, ComparisonResult, CrawlerStatus,
 import { currentLanguage, t } from '../i18n/index.tsx';
 
 // Kết nối backend FastAPI + LangGraph. Đổi địa chỉ bằng VITE_API_BASE_URL trong .env.
+// Giới hạn đầu vào, khớp với backend/src/schemas/chat.py (vượt -> backend trả 422)
+export const MAX_MESSAGE_CHARS = 2000;
+export const MAX_COMPARE_PRODUCTS = 10;
+
 export const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:8000';
 
 // phiên đăng nhập
@@ -171,16 +175,32 @@ export interface ChatStreamHandlers {
   onDone?: (info: DoneInfo) => void;
 }
 
-function dispatch(event: string, data: any, h: ChatStreamHandlers) {
+// Dữ liệu của từng loại event SSE do backend gửi (core/events.py)
+interface StreamPayloads {
+  status: { stage: string; message: string };
+  products: { items: BackendProduct[] };
+  comparison: Parameters<typeof toComparison>[0];
+  clarification: BackendClarification;
+  token: { content: string };
+  suggestions: string[];
+  done: { intent: string | null; relaxed_search: string | null; search_notes?: string[] };
+  error: { error?: string };
+}
+
+function dispatch(event: string, data: unknown, h: ChatStreamHandlers) {
   switch (event) {
-    case 'status': h.onStatus?.(data.stage, data.message); break;
-    case 'products': h.onProducts?.((data.items as BackendProduct[]).map(toProductItem)); break;
-    case 'comparison': { const c = toComparison(data); if (c) h.onComparison?.(c); break; }
-    case 'clarification': h.onClarification?.(toClarification(data)); break;
-    case 'token': h.onToken?.(data.content); break;
-    case 'suggestions': h.onSuggestions?.(data); break;
-    case 'done': h.onDone?.({ intent: data.intent, relaxedSearch: data.relaxed_search, searchNotes: data.search_notes ?? [] }); break;
-    case 'error': throw new Error(data.error || t('Lỗi không xác định từ backend'));
+    case 'status': { const d = data as StreamPayloads['status']; h.onStatus?.(d.stage, d.message); break; }
+    case 'products': h.onProducts?.((data as StreamPayloads['products']).items.map(toProductItem)); break;
+    case 'comparison': { const c = toComparison(data as StreamPayloads['comparison']); if (c) h.onComparison?.(c); break; }
+    case 'clarification': h.onClarification?.(toClarification(data as StreamPayloads['clarification'])); break;
+    case 'token': h.onToken?.((data as StreamPayloads['token']).content); break;
+    case 'suggestions': h.onSuggestions?.(data as StreamPayloads['suggestions']); break;
+    case 'done': {
+      const d = data as StreamPayloads['done'];
+      h.onDone?.({ intent: d.intent, relaxedSearch: d.relaxed_search, searchNotes: d.search_notes ?? [] });
+      break;
+    }
+    case 'error': throw new Error((data as StreamPayloads['error']).error || t('Lỗi không xác định từ backend'));
   }
 }
 

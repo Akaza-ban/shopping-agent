@@ -1,12 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useEffectEvent, useState } from 'react';
 import { AlertCircle, MapPin, RotateCw, Search, ShieldCheck } from 'lucide-react';
-import { PlatformPolicy, PolicyExcerpt, PolicyRequest, PolicyScenario, PolicyScope } from '../../types.ts';
+import { PlatformPolicy, PolicyExcerpt, PolicyLookupResult, PolicyRequest, PolicyScenario, PolicyScope } from '../../types.ts';
 import { PLATFORMS, getPlatformName } from '../../services/shoppingService.ts';
 import { lookupPolicies } from '../../services/agentApi.ts';
 import { msg, t } from '../../i18n/index.tsx';
 import { SCENARIOS } from './scenarios.ts';
 import { PolicyAnswer } from './PolicyAnswer.tsx';
 import { PolicyCompare, PolicyDetails } from './PolicyCompare.tsx';
+
+// Bản chính sách mới hơn (updates) thay bản cùng nền tảng trong base; nền tảng chưa có thì thêm vào cuối
+const mergePolicies = (base: PlatformPolicy[], updates: PlatformPolicy[]): PlatformPolicy[] => [
+  ...base.map(p => updates.find(u => u.platformId === p.platformId) ?? p),
+  ...updates.filter(u => !base.some(p => p.platformId === u.platformId)),
+];
 
 interface PolicyLookupViewProps {
   enabledPlatformIds: string[];
@@ -36,11 +42,12 @@ export const PolicyLookupView: React.FC<PolicyLookupViewProps> = ({ enabledPlatf
   const [deselectedIds, setDeselectedIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [policies, setPolicies] = useState<PlatformPolicy[]>(initialPolicies);
+  // Chính sách lấy được qua các lần tra cứu trong màn này, mới hơn bản tải lúc mở ứng dụng
+  const [lookedUpPolicies, setLookedUpPolicies] = useState<PlatformPolicy[]>([]);
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [showAll, setShowAll] = useState(false);
 
-  useEffect(() => setPolicies(prev => (prev.length ? prev : initialPolicies)), [initialPolicies]);
+  const policies = mergePolicies(initialPolicies, lookedUpPolicies);
 
   const activeIds = enabledPlatformIds.filter(id => !deselectedIds.includes(id));
   // Đã xác định nơi bán -> chỉ hiện chính sách của nơi bán; chưa tra cứu -> các nền tảng đang chọn
@@ -50,23 +57,29 @@ export const PolicyLookupView: React.FC<PolicyLookupViewProps> = ({ enabledPlatf
   const togglePlatform = (id: string) =>
     setDeselectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
 
+  const requestLookup = (lookupQuery: string, productPlatformIds: string[], nextScenario: PolicyScenario | null) =>
+    lookupPolicies(lookupQuery, activeIds, category, productPlatformIds, nextScenario);
+
+  const applyAnswer = (lookupQuery: string, productPlatformIds: string[], result: PolicyLookupResult) => {
+    onLookup(lookupQuery, result.scope.platformIds);
+    setLookedUpPolicies(prev => mergePolicies(prev, result.policies));
+    setAnswer({
+      query: lookupQuery, summary: result.summary, sourceIds: result.sourceIds ?? [], excerpts: result.excerpts,
+      scope: result.scope, productPlatformIds,
+    });
+    setShowAll(false);
+  };
+
+  const showLookupError = (err: unknown) =>
+    setError(err instanceof Error ? err.message : t('Không tra cứu được chính sách, vui lòng thử lại.'));
+
   const runLookup = async (lookupQuery: string, productPlatformIds: string[], nextScenario: PolicyScenario | null) => {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await lookupPolicies(lookupQuery, activeIds, category, productPlatformIds, nextScenario);
-      onLookup(lookupQuery, result.scope.platformIds);
-      setPolicies(prev => {
-        const merged = prev.map(p => result.policies.find(r => r.platformId === p.platformId) ?? p);
-        return [...merged, ...result.policies.filter(r => !prev.some(p => p.platformId === r.platformId))];
-      });
-      setAnswer({
-        query: lookupQuery, summary: result.summary, sourceIds: result.sourceIds ?? [], excerpts: result.excerpts,
-        scope: result.scope, productPlatformIds,
-      });
-      setShowAll(false);
+      applyAnswer(lookupQuery, productPlatformIds, await requestLookup(lookupQuery, productPlatformIds, nextScenario));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('Không tra cứu được chính sách, vui lòng thử lại.'));
+      showLookupError(err);
     } finally {
       setIsLoading(false);
     }
@@ -86,12 +99,30 @@ export const PolicyLookupView: React.FC<PolicyLookupViewProps> = ({ enabledPlatf
     runLookup(answer?.query ?? (query.trim() || category), answer?.productPlatformIds ?? [], value);
   };
 
+  // Yêu cầu tra cứu gửi từ màn khác (VD nút Chính sách trên thẻ sản phẩm):
+  // điền câu hỏi và bật "đang tải" ngay lúc render, còn việc gọi API chạy trong effect
+  const [shownRequest, setShownRequest] = useState<PolicyRequest | null>(null);
+  if (request && request !== shownRequest) {
+    setShownRequest(request);
+    setQuery(request.query);
+    setIsLoading(true);
+    setError(null);
+  }
+  const startRequestLookup = useEffectEvent((incoming: PolicyRequest) => {
+    onRequestHandled?.();
+    return requestLookup(incoming.query, incoming.productPlatformIds, scenario);
+  });
+  const onRequestAnswered = useEffectEvent((incoming: PolicyRequest, result: PolicyLookupResult) =>
+    applyAnswer(incoming.query, incoming.productPlatformIds, result),
+  );
+  const onRequestFailed = useEffectEvent(showLookupError);
   useEffect(() => {
     if (!request) return;
-    setQuery(request.query);
-    runLookup(request.query, request.productPlatformIds, scenario);
-    onRequestHandled?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Không hủy khi request đổi: onRequestHandled đặt request về null ngay, kết quả vẫn phải được hiển thị
+    startRequestLookup(request)
+      .then(result => onRequestAnswered(request, result))
+      .catch(err => onRequestFailed(err))
+      .finally(() => setIsLoading(false));
   }, [request]);
 
   const names = (ids: string[]) => ids.map(getPlatformName).join(', ');

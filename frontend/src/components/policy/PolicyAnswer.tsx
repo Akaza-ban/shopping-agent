@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AlertTriangle, BadgeCheck, CheckSquare, ExternalLink, Quote, Sparkles, Square } from 'lucide-react';
 import { PlatformPolicy, PolicyExcerpt, PolicyScenario } from '../../types.ts';
 import { getPlatformName } from '../../services/shoppingService.ts';
@@ -17,10 +17,13 @@ interface PolicyAnswerProps {
 export const PolicyAnswer: React.FC<PolicyAnswerProps> = ({ summary, sourceIds, excerpts, policies, scenario }) => {
   const [openSource, setOpenSource] = useState<number | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
-  useEffect(() => {
+  // Câu trả lời mới -> đóng nguồn đang mở và bỏ các mục đã đánh dấu (tính ngay lúc render thay vì trong effect)
+  const [answeredSummary, setAnsweredSummary] = useState(summary);
+  if (summary !== answeredSummary) {
+    setAnsweredSummary(summary);
     setOpenSource(null);
     setChecked([]);
-  }, [summary]);
+  }
 
   const single = policies.length === 1 ? policies[0] : null;
   const sources = sourceIds.map(id => excerpts.find(e => e.id === id)).filter((e): e is PolicyExcerpt => !!e);

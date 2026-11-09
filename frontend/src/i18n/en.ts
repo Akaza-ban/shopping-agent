@@ -495,6 +495,12 @@ export const EN: Record<string, string> = {
   "Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu link mới.": "This password reset link is invalid or has expired. Please request a new one.",
   "Sau khi đổi, tài khoản sẽ được đăng xuất khỏi mọi thiết bị.": "After the change, the account will be signed out on every device.",
   "Đã đặt mật khẩu mới. Vui lòng đăng nhập lại.": "Your new password is set. Please sign in again.",
+
+  // giới hạn sử dụng
+  "Đã chọn tối đa {max} sản phẩm cho một lần so sánh.": "You can compare at most {max} products at a time.",
+  "Chỉ quản trị viên được bắt buộc cào mới.": "Only administrators can force a fresh crawl.",
+  "Link sản phẩm không thuộc sàn đã chọn.": "The product link doesn't belong to the selected store.",
+  "Link không hợp lệ hoặc trỏ tới địa chỉ nội bộ.": "The link is invalid or points to an internal address.",
 };
 
 /** Câu có biến từ backend: biểu thức chính quy -> mẫu tiếng Anh ($1, $2...), dùng khi EN không có khóa. */
@@ -506,4 +512,5 @@ export const EN_PATTERNS: [RegExp, string][] = [
   [/^Giá mong muốn phải thấp hơn giá hiện tại trên sàn \((.+) đ\)\.$/, "Target price must be lower than the store's current price ($1 VND)."],
   [/^Mật khẩu cần ít nhất (\d+) ký tự\.$/, "Password must be at least $1 characters."],
   [/^Không thể bóc tách liên kết: (.+)$/, "Couldn't parse the link: $1"],
+  [/^Bạn gửi yêu cầu quá nhanh, vui lòng thử lại sau (\d+) giây\.$/, "You're sending requests too quickly, please try again in $1 seconds."],
 ];

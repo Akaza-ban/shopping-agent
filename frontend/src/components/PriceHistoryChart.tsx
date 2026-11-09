@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PricePoint } from '../types.ts';
 import { parseServerDate } from '../services/agentApi.ts';
-import { currentLocale, t } from '../i18n/index.tsx';
+import { currentLocale, formatVnd, t } from '../i18n/index.tsx';
 
 interface PriceHistoryChartProps {
   points: PricePoint[];
@@ -9,7 +9,6 @@ interface PriceHistoryChartProps {
   height?: number;
 }
 
-const formatVnd = (n: number) => `${Math.round(n).toLocaleString(currentLocale())} ₫`;
 // Nhãn trục gọn: "27,5tr" (tiếng Việt) / "27.5M" (tiếng Anh)
 const formatShort = (n: number) =>
   n >= 1_000_000
